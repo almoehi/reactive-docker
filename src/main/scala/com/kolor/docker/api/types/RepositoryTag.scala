@@ -1,0 +1,23 @@
+package com.kolor.docker.api.types
+
+import com.kolor.docker.api.InvalidRepositoryTagFormatException
+
+class RepositoryTag private[RepositoryTag] (val repo: String, val tag: Option[String]) extends DockerEntity {
+  override def toString = s"$repo/${tag.getOrElse("latest")}"
+}
+
+object RepositoryTag {
+	  val pattern = """^(\w+):?(\w*)$""".r
+
+	  def apply(s: String): RepositoryTag = s match {
+	    case pattern(repo, tag: String) => new RepositoryTag(repo, Some(tag))
+	    case pattern(repo, _) => new RepositoryTag(repo, None)
+		case _ => throw InvalidRepositoryTagFormatException(s"$s is an invalid repository tag", s)
+	  }
+	  
+	  def unapply(tag: RepositoryTag): Option[String] = {
+	    Some(tag.toString)
+	  }
+	  
+	  def create(repo: String, tag: Option[String]) = new RepositoryTag(repo, tag)
+}
