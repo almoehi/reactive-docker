@@ -31,7 +31,7 @@ val req = solr / "update" / "json" << a <<? params <:< headers
 
      */
   
-  def dockerAuth(authInfo: DockerAuth)(implicit docker: DockerClient): Future[Boolean] = {
+  def dockerAuth(authInfo: DockerAuth)(implicit docker: DockerClient, fmt: Format[DockerAuth]): Future[Boolean] = {
     val req = authInfo match {
       case data:DockerAuthCredentials => url(Endpoints.dockerAuth.toString).POST << Json.prettyPrint(Json.toJson(data)) <:< Map("Content-Type" -> "application/json")
       case _ => url(Endpoints.dockerAuth.toString).POST <:< Map("Content-Type" -> "application/json")
@@ -46,7 +46,7 @@ val req = solr / "update" / "json" << a <<? params <:< headers
     }
   }
 
-  def dockerInfo()(implicit docker: DockerClient): Future[DockerInfo] = {
+  def dockerInfo()(implicit docker: DockerClient, fmt: Format[DockerInfo]): Future[DockerInfo] = {
     val req = url(Endpoints.dockerInfo.toString).GET
     docker.dockerJsonRequest[DockerInfo](req).map {
       case Right(v) => v
@@ -56,7 +56,7 @@ val req = solr / "update" / "json" << a <<? params <:< headers
   }
   
   
-  def dockerVersion()(implicit docker: DockerClient): Future[DockerVersion] = {
+  def dockerVersion()(implicit docker: DockerClient, fmt: Format[DockerVersion]): Future[DockerVersion] = {
     val req = url(Endpoints.dockerVersion.toString).GET
     docker.dockerJsonRequest[DockerVersion](req).map {
       case Left(StatusCode(500)) => throw new DockerInternalServerErrorException(docker)
@@ -65,27 +65,18 @@ val req = solr / "update" / "json" << a <<? params <:< headers
     }
   }
   
-  def dockerEvents(since: Option[DateTime] = None)(implicit docker: DockerClient, fmt: Format[DockerEvent]): Future[Seq[DockerEvent]] = {
+  def dockerEvents(since: Option[DateTime] = None)(implicit docker: DockerClient, fmt: Format[DockerStatusMessage], errorFmt: Format[DockerErrorInfo], progressFmt: Format[DockerProgressInfo]): Future[Enumerator[Seq[Either[DockerErrorInfo, DockerStatusMessage]]]] = {
     val req = url(Endpoints.dockerEvents(since.map(_.getMillis()).getOrElse(DateTime.now().getMillis())).toString).GET
     docker.dockerRequestStream(req).map {
-      case Right(enumerator) => 
-        //val (iteratee, enumerator) = Concurrent.joined[Array[Byte]]
-        /*
-        enumerator &>
-          play.extras.iteratees.Encoding.decode() &>
-          play.extras.iteratees.JsonEnumeratees.jsArray &>
-		  Enumeratee.map[JsValue](x => Json.re) &>
-		  Enumeratee.collect[JsResult[DockerEvent]] { case JsSuccess(value, _) => value } &>
-		  Enumeratee.map[DockerEvent](Seq(_))
-
-  		*/
-        Seq.empty
+      case Right(en) => 
+        val (iteratee, en) = Concurrent.joined[Array[Byte]]
+        DockerIteratee.toStatusStreamEnumerator(en)
       case Left(StatusCode(500)) => throw new DockerRequestException(s"docker events (since $since) request failed", docker, None, Some(req))
       case Left(t) => throw new DockerRequestException(s"docker events (since $since) request failed", docker, Some(t), Some(req))
     }
   }
   
-  def dockerBuild(tarFile: java.io.File, tag: String, verbose: Boolean = false, nocache: Boolean = false)(implicit docker: DockerClient, auth: DockerAuth = DockerAnonymousAuth): Future[Seq[JsObject]] = {
+  def dockerBuild(tarFile: java.io.File, tag: String, verbose: Boolean = false, nocache: Boolean = false)(implicit docker: DockerClient, auth: DockerAuth = DockerAnonymousAuth): Future[Enumerator[Seq[Either[DockerErrorInfo, DockerStatusMessage]]]] = {
     val req = auth match {
     	case DockerAnonymousAuth => url(Endpoints.dockerBuild(tag, verbose, nocache).toString).POST
     	case data => url(Endpoints.dockerBuild(tag, verbose, nocache).toString).POST <:< Map("X-Registry-Config" -> data.asBase64Encoded)
@@ -93,8 +84,8 @@ val req = solr / "update" / "json" << a <<? params <:< headers
     
     docker.dockerRequestStream(req).map { 
       case Right(en) => 
-        // TODO: parse en to create tuples from json {"type":"body"} -> (type, body)
-        Seq.empty
+        val (iteratee, en) = Concurrent.joined[Array[Byte]]
+        DockerIteratee.toStatusStreamEnumerator(en)
       case Left(StatusCode(500)) => throw new DockerInternalServerErrorException(docker)
       case Left(t) => throw new DockerRequestException(s"docker build (from $tarFile) request failed", docker, Some(t), Some(req))
     }
@@ -103,7 +94,7 @@ val req = solr / "update" / "json" << a <<? params <:< headers
 
 trait DockerContainerApi {
 
-  def containers(all:Boolean = true, limit: Option[Int] = None, sinceId: Option[String] = None, beforeId: Option[String] = None, showSize: Boolean = true)(implicit docker: DockerClient): Future[Seq[Container]] = {
+  def containers(all:Boolean = true, limit: Option[Int] = None, sinceId: Option[String] = None, beforeId: Option[String] = None, showSize: Boolean = true)(implicit docker: DockerClient, fmt: Format[Container]): Future[Seq[Container]] = {
     val req = url(Endpoints.containers(all, limit, sinceId, beforeId, showSize).toString).GET
     docker.dockerJsonRequest[Seq[Container]](req).map {
       case Left(StatusCode(400)) => throw new DockerBadParameterException("list containers - bad parameter", docker, req)
@@ -141,7 +132,7 @@ trait DockerContainerApi {
     }
   }
   
-  def inspectContainer(id: ContainerId)(implicit docker: DockerClient, fmt: Format[ContainerInfo]): Future[ContainerInfo] = {
+  def containerInspect(id: ContainerId)(implicit docker: DockerClient, fmt: Format[ContainerInfo]): Future[ContainerInfo] = {
     val req = url(Endpoints.containerInspect(id).toString).GET
     docker.dockerJsonRequest[ContainerInfo](req).map { 
       case Right(info) => info
@@ -336,26 +327,24 @@ trait DockerImagesApi {
     }
   }
   
-  def imageCreate(repoTag: RepositoryTag, registry: Option[String] = None, fromSrc: Option[String] = None)(implicit docker: DockerClient, auth: DockerAuth = DockerAnonymousAuth): Future[Seq[JsObject]] = {
+  def imageCreate(repoTag: RepositoryTag, registry: Option[String] = None, fromSrc: Option[String] = None)(implicit docker: DockerClient, auth: DockerAuth = DockerAnonymousAuth): Future[Seq[Either[DockerErrorInfo, DockerStatusMessage]]] = {
     val req = auth match {
     	case DockerAnonymousAuth => url(Endpoints.imageCreate(repoTag.repo, fromSrc, Some(repoTag.repo), repoTag.tag, registry).toString).POST
     	case data => url(Endpoints.imageCreate(repoTag.repo, fromSrc, Some(repoTag.repo), repoTag.tag, registry).toString).POST <:< Map("X-Registry-Auth" -> data.asBase64Encoded)
     }
     
     docker.dockerRequestStream(req).flatMap { 
-      case Right(en) => (en |>>> DockerIteratee.json).map(_.toSeq)
+      case Right(en) => (en |>>> DockerIteratee.statusStream)
       case Left(StatusCode(500)) => throw new DockerInternalServerErrorException(docker)
       case Left(t) => throw new DockerRequestException(s"image pull ${repoTag.toString} (registry: $registry) request failed", docker, Some(t), Some(req))
     }
   }
 
-  def imageInsertResource(image: String, imageTargetPath: String, sourceFileUrl: Uri)(implicit docker: DockerClient): Future[Seq[JsObject]] = {
+  def imageInsertResource(image: String, imageTargetPath: String, sourceFileUrl: Uri)(implicit docker: DockerClient): Future[Seq[Either[DockerErrorInfo, DockerStatusMessage]]] = {
     val req = url(Endpoints.imageInsert(image, imageTargetPath, java.net.URI.create(sourceFileUrl.toString)).toString).POST
     
-    docker.dockerRequestStream(req).map { 
-      case Right(en) => 
-        // TODO: parse en to create tuples from json {"type":"body"} and {"status":"body", "progress":"progStr", "progressDetail":} 
-        Seq.empty
+    docker.dockerRequestStream(req).flatMap { 
+      case Right(en) => (en |>>> DockerIteratee.statusStream)
       case Left(StatusCode(500)) => throw new DockerInternalServerErrorException(docker)
       case Left(t) => throw new DockerRequestException(s"insert resource $sourceFileUrl into image $image:$imageTargetPath request failed", docker, Some(t), Some(req))
     }
@@ -382,16 +371,14 @@ trait DockerImagesApi {
     }
   }
   
-  def imagePush(image: String, registry: Option[String] = None)(implicit docker: DockerClient, auth: DockerAuth = DockerAnonymousAuth): Future[Seq[JsObject]] = {
+  def imagePush(image: String, registry: Option[String] = None)(implicit docker: DockerClient, auth: DockerAuth = DockerAnonymousAuth): Future[Seq[Either[DockerErrorInfo, DockerStatusMessage]]] = {
     val req = auth match {
     	case DockerAnonymousAuth => url(Endpoints.imagePush(image, registry).toString).POST
     	case data => url(Endpoints.imagePush(image, registry).toString).POST <:< Map("X-Registry-Auth" -> data.asBase64Encoded)
     }
     
-    docker.dockerRequestStream(req).map { 
-      case Right(en) => 
-        // TODO: parse en to create tuples from json {"type":"body"} -> (type, body)
-        Seq.empty
+    docker.dockerRequestStream(req).flatMap { 
+      case Right(en) => (en |>>> DockerIteratee.statusStream)
       case Left(StatusCode(500)) => throw new DockerInternalServerErrorException(docker)
       case Left(StatusCode(404)) => throw new NoSuchImageException(image, docker)
       case Left(t) => throw new DockerRequestException(s"push image $image request failed", docker, Some(t), Some(req))
@@ -433,11 +420,10 @@ trait DockerImagesApi {
     }
   }
   
-  def imageExport(image: String)(implicit docker: DockerClient): Future[(String, Enumerator[Array[Byte]])] = {
+  def imageExport(image: String)(implicit docker: DockerClient): Future[Enumerator[Array[Byte]]] = {
     val req = url(Endpoints.imageExport(image).toString).GET
     docker.dockerRequestStream(req).map {
-      case Right(en) => 
-        (s"$image.tar", en)
+      case Right(en) => en
       case Left(StatusCode(500)) => throw new DockerRequestException(s"exporting image $image request failed", docker, None, Some(req))
       case Left(t) => throw new DockerRequestException(s"exporting image $image request failed", docker, Some(t), Some(req))
     }

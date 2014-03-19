@@ -12,6 +12,18 @@ trait DockerEntity {
   
 }
 
+case class DockerErrorInfo(code: Option[Int], message: Option[String]) extends DockerEntity
+
+case class DockerProgressInfo(current: Int, total: Int, start: Option[DateTime])
+
+case class DockerStatusMessage(
+    id: Option[String], 
+    stream: Option[String], 
+    status: Option[String], 
+    from: Option[String], 
+    time: Option[DateTime], 
+    progress: Option[DockerProgressInfo], 
+    error: Option[DockerErrorInfo])
 
 case class Container(
     id: ContainerId, 
@@ -94,7 +106,7 @@ case class DockerImage(
 
 case class DockerImageInfo(
     id: ImageId,
-    parent: Option[ImageId],
+    parent: Option[ImageId] = None,
     created: DateTime,
     container: Option[ContainerId],
     containerConfig: Option[ContainerConfiguration],
@@ -141,4 +153,3 @@ case class DockerInfo(
 
 case class DockerVersion(version: String, gitCommit: Option[String], goVersion: Option[String], arch: Option[String], kernelVersion: Option[String], os: Option[String])
 
-case class DockerEvent(status: String, id: ContainerId, from: RepositoryTag, time: DateTime)

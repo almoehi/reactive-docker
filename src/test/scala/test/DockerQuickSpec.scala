@@ -17,6 +17,7 @@ import org.specs2.matcher.FutureMatchers.await
 import scala.concurrent.ExecutionContext.Implicits.global
 import org.junit.runner.RunWith
 import org.specs2.runner.JUnitRunner
+import com.kolor.docker.api.json.Formats._
 
 
 @RunWith(classOf[JUnitRunner])
@@ -37,14 +38,14 @@ class DockerQuickSpec extends Specification  {
     "create, start, stop and remove a container" in container {env:Container => 
       env.containerId.id must not be empty
       val run = await(docker.containerStart(env.containerId))
-      val info = await(docker.inspectContainer(env.containerId))
+      val info = await(docker.containerInspect(env.containerId))
       
       info.name must beSome(env.containerName)
       info.state.running must be_==(true)
     }
     
     "inspect a running container" in runningContainer {env:Container =>
-      val info = await(docker.inspectContainer(env.containerId))
+      val info = await(docker.containerInspect(env.containerId))
       info.state.running must be_==(true)
     }
     
@@ -55,10 +56,11 @@ class DockerQuickSpec extends Specification  {
     
     "pull an image" in new DockerContext {
       val res = await(docker.imageCreate(RepositoryTag("busybox")))
-      res.size must be_>=(0)
+      res.size must be_>(0)
       
-      (res(0) \ "status").asOpt[String] must beLike {
-        case Some(str) => str must startWith("Pulling")
+      res(0) must beLike {
+        case Right(msg) => msg.status must not be empty
+        case Left(err) => err.code must not be empty
       }
       
       val rm = await(docker.imageRemove("busybox"))

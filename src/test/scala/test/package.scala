@@ -58,7 +58,7 @@ package object test {
 	    val imageTag = RepositoryTag.create("busybox", Some("latest"))
 	    val cfg = ContainerConfig("busybox", cmd)
 	    Await.result(docker.imageCreate(imageTag), timeout)
-	    implicit val fmt:Format[ContainerConfiguration] = com.kolor.docker.api.containerConfigFmt
+	    implicit val fmt:Format[ContainerConfiguration] = com.kolor.docker.api.json.Formats.containerConfigFmt
 		val containerId = Await.result(docker.containerCreate("busybox", cfg, Some(containerName)), timeout)._1	    
 	    new Container(containerId, containerName, cmd)
 	  }
@@ -87,10 +87,10 @@ package object test {
 	    val imageTag = RepositoryTag.create("busybox", Some("latest"))
 	    val cfg = ContainerConfig("busybox", cmd)
 	    Await.result(docker.imageCreate(imageTag), timeout)
-	    implicit val fmt:Format[ContainerConfiguration] = com.kolor.docker.api.containerConfigFmt
+	    implicit val fmt:Format[ContainerConfiguration] = com.kolor.docker.api.json.Formats.containerConfigFmt
 		val containerId = Await.result(docker.containerCreate("busybox", cfg, Some(containerName)), timeout)._1
 	    
-		implicit val hostFmt: Format[ContainerHostConfiguration] = com.kolor.docker.api.containerHostConfigFmt
+		implicit val hostFmt: Format[ContainerHostConfiguration] = com.kolor.docker.api.json.Formats.containerHostConfigFmt
 		Await.result(docker.containerStart(containerId), timeout)
 	    new Container(containerId, containerName, cmd)
 	  }
@@ -120,10 +120,10 @@ package object test {
 	    val imageTag = RepositoryTag.create("busybox", Some("latest"))
 	    val cfg = ContainerConfig("busybox", cmd)
 	    Await.result(docker.imageCreate(imageTag), timeout)
-	    implicit val fmt:Format[ContainerConfiguration] = com.kolor.docker.api.containerConfigFmt
+	    implicit val fmt:Format[ContainerConfiguration] = com.kolor.docker.api.json.Formats.containerConfigFmt
 		val containerId = Await.result(docker.containerCreate("busybox", cfg, Some(containerName)), timeout)._1
 	    
-		implicit val hostFmt: Format[ContainerHostConfiguration] = com.kolor.docker.api.containerHostConfigFmt
+		implicit val hostFmt: Format[ContainerHostConfiguration] = com.kolor.docker.api.json.Formats.containerHostConfigFmt
 		Await.result(docker.containerStart(containerId), timeout)
 	    new Container(containerId, containerName, cmd)
 	  }

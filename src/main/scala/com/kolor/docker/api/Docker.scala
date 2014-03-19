@@ -8,7 +8,7 @@ import com.kolor.docker.api.types.ContainerId
 import org.slf4j.LoggerFactory
 
 sealed trait DockerClient extends DockerApi {  
-  protected val log = LoggerFactory.getLogger(this.getClass());
+  override protected val log = LoggerFactory.getLogger(this.getClass());
   
   def dockerApiVersion: String
   def dockerHost: String

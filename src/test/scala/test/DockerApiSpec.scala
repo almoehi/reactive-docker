@@ -15,7 +15,9 @@ import org.specs2.execute._
 import org.specs2.specification._
 import org.specs2.matcher.FutureMatchers.await
 import scala.concurrent.ExecutionContext.Implicits.global
-
+import com.kolor.docker.api.json.Formats._
+import play.api.libs.iteratee.Enumeratee
+import play.api.libs.iteratee.Iteratee
 
 class DockerApiSpec extends Specification {
 
@@ -46,7 +48,9 @@ class DockerApiSpec extends Specification {
     
     "retrieve docker events" in new DockerContext {
       val events = await(docker.dockerEvents())
-      events.size must be_>(0)
+      val take1AndConsume = Enumeratee.take[Seq[Either[DockerErrorInfo, DockerStatusMessage]]](1) &>> Iteratee.consume()
+      val res = await(events |>>> take1AndConsume)
+      res.size must be_>=(0)
     }
     
     
@@ -132,13 +136,13 @@ class DockerApiSpec extends Specification {
     }
     
     "inspect a simple container" in container {env:Container => 
-      val info = await(docker.inspectContainer(env.containerId))
+      val info = await(docker.containerInspect(env.containerId))
       info.id.id must_!=("")
       info.id.id must_==(env.containerId.id)
     }
     
     "inspect a complex container" in complexContainer {env:Container =>
-      val info = await(docker.inspectContainer(env.containerId))
+      val info = await(docker.containerInspect(env.containerId))
       info.id.id must be_==(env.containerId.id)
     }
     
@@ -159,7 +163,7 @@ class DockerApiSpec extends Specification {
       
       val id = await(docker.containerCreate("busybox", cfg, Some(name)))._1
       
-      val info = await(docker.inspectContainer(id))
+      val info = await(docker.containerInspect(id))
       
       info.id.id must be_==(id.id)
       info.name must beLike {
