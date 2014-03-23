@@ -7,8 +7,13 @@ import scala.concurrent._
 import org.specs2.Specification
 import org.specs2.execute.AsResult
 import play.api.libs.json._
+import org.slf4j.LoggerFactory
+import play.api.libs.iteratee.Iteratee
+import scala.concurrent.ExecutionContext.Implicits.global
 
 package object test {
+  
+  private val log = LoggerFactory.getLogger(getClass())
   
   class DockerContext extends Scope {
 	  implicit lazy val docker: DockerClient = Docker("localhost")
@@ -17,9 +22,9 @@ package object test {
   
   case class Image(imageCmd: Seq[String], imageTag: RepositoryTag) {
 	  def imageName = imageTag.repo
-	}
+  }
 	
-  case class Container(containerId: ContainerId, containerName: String, imageCmd: Seq[String])
+  case class Container(containerId: ContainerId, containerName: String, image: RepositoryTag, imageCmd: Seq[String])
 	
 
 	
@@ -38,10 +43,12 @@ package object test {
 	  // create a context
 	  def around[T : AsResult](t: =>T) = {
 	    try {
-	      Await.result(docker.imageCreate(env.imageTag), timeout)
+	      log.info(s"prepare image context - pulling busybox:latest ...")
+	      Await.result(docker.imageCreate(env.imageTag).flatMap(_ |>>> Iteratee.ignore), timeout)
 	      AsResult(t)
 	    } finally {
 	      Await.result(docker.imageRemove(env.imageName), timeout)
+	      log.info(s"shutdown & cleaned up image context")
 	    }
 	  }
 	  // prepare a valid ImageEnv
@@ -57,10 +64,15 @@ package object test {
 	    val containerName = "reactive-docker"
 	    val imageTag = RepositoryTag.create("busybox", Some("latest"))
 	    val cfg = ContainerConfig("busybox", cmd)
-	    Await.result(docker.imageCreate(imageTag), timeout)
+	    log.info(s"prepare container context - pulling busybox:latest ...")
+
+	    Await.result(docker.imageCreate(imageTag).flatMap(_ |>>> Iteratee.ignore), timeout)
 	    implicit val fmt:Format[ContainerConfiguration] = com.kolor.docker.api.json.Formats.containerConfigFmt
-		val containerId = Await.result(docker.containerCreate("busybox", cfg, Some(containerName)), timeout)._1	    
-	    new Container(containerId, containerName, cmd)
+	    log.info(s"prepare container context - creating container $containerName (cmd: ${cmd.mkString})")
+
+		val containerId = Await.result(docker.containerCreate("busybox", cfg, Some(containerName)), timeout)._1	
+		log.info(s"prepare container context - container ready with  $containerId")
+	    new Container(containerId, containerName, imageTag, cmd)
 	  }
 	  
 	  // create a context
@@ -71,6 +83,7 @@ package object test {
 	      Await.result(docker.containerStop(env.containerId, 10), timeout)
 	      Await.result(docker.containerRemove(env.containerId, true), timeout)
 	      Await.result(docker.imageRemove("busybox"), timeout)
+	      log.info(s"shutdown & cleaned up container context")
 	    }
 	  }
 	  // prepare a valid Container env
@@ -86,13 +99,20 @@ package object test {
 	    val containerName = "reactive-docker"
 	    val imageTag = RepositoryTag.create("busybox", Some("latest"))
 	    val cfg = ContainerConfig("busybox", cmd)
-	    Await.result(docker.imageCreate(imageTag), timeout)
+	    log.info(s"prepare runningContainer context - pulling busybox:latest ...")
+
+	    Await.result(docker.imageCreate(imageTag).flatMap(_ |>>> Iteratee.ignore), timeout)
 	    implicit val fmt:Format[ContainerConfiguration] = com.kolor.docker.api.json.Formats.containerConfigFmt
+	    log.info(s"prepare runningContainer context - creating container $containerName (cmd: ${cmd.mkString})")
+
 		val containerId = Await.result(docker.containerCreate("busybox", cfg, Some(containerName)), timeout)._1
-	    
+		log.info(s"prepare runningContainer context - container ready with  $containerId, starting ...")
+
 		implicit val hostFmt: Format[ContainerHostConfiguration] = com.kolor.docker.api.json.Formats.containerHostConfigFmt
 		Await.result(docker.containerStart(containerId), timeout)
-	    new Container(containerId, containerName, cmd)
+		log.info(s"prepare runningContainer context - container $containerId running")
+
+	    new Container(containerId, containerName, imageTag, cmd)
 	  }
 	  
 	  // create a context
@@ -103,6 +123,7 @@ package object test {
 	      Await.result(docker.containerStop(env.containerId, 10), timeout)
 	      Await.result(docker.containerRemove(env.containerId, true), timeout)
 	      Await.result(docker.imageRemove("busybox"), timeout)
+	      log.info(s"shutdown & cleaned up runningContainer context")
 	    }
 	  }
 	  // prepare a valid Container env
@@ -119,13 +140,20 @@ package object test {
 	    val containerName = "reactive-docker"
 	    val imageTag = RepositoryTag.create("busybox", Some("latest"))
 	    val cfg = ContainerConfig("busybox", cmd)
-	    Await.result(docker.imageCreate(imageTag), timeout)
+	    log.info(s"prepare runningComplexContainer context - pulling busybox:latest ...")
+
+	    Await.result(docker.imageCreate(imageTag).flatMap(_ |>>> Iteratee.ignore), timeout)
 	    implicit val fmt:Format[ContainerConfiguration] = com.kolor.docker.api.json.Formats.containerConfigFmt
+	    log.info(s"prepare runningComplexContainer context - creating container $containerName (cmd: ${cmd.mkString}) (cfg: ${cfg})")
+
 		val containerId = Await.result(docker.containerCreate("busybox", cfg, Some(containerName)), timeout)._1
-	    
+	    log.info(s"prepare runningComplexContainer context - creating container $containerName (cmd: ${cmd.mkString})")
+
 		implicit val hostFmt: Format[ContainerHostConfiguration] = com.kolor.docker.api.json.Formats.containerHostConfigFmt
 		Await.result(docker.containerStart(containerId), timeout)
-	    new Container(containerId, containerName, cmd)
+		log.info(s"prepare runningComplexContainer context - container $containerId running")
+
+	    new Container(containerId, containerName, imageTag, cmd)
 	  }
 	  
 	  // create a context
@@ -136,6 +164,7 @@ package object test {
 	      Await.result(docker.containerStop(env.containerId, 10), timeout)
 	      Await.result(docker.containerRemove(env.containerId, true), timeout)
 	      Await.result(docker.imageRemove("busybox"), timeout)
+	      log.info(s"shutdown & cleaned up runningComplexContainer context")
 	    }
 	  }
 	  // prepare a valid Container env

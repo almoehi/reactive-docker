@@ -16,16 +16,35 @@ import org.specs2.specification._
 import org.specs2.matcher.FutureMatchers.await
 import scala.concurrent.ExecutionContext.Implicits.global
 import com.kolor.docker.api.json.Formats._
-import play.api.libs.iteratee.Enumeratee
-import play.api.libs.iteratee.Iteratee
+import play.api.libs.iteratee._
 
 class DockerApiSpec extends Specification {
 
-  implicit def defaultAwaitTimeout: Duration = Duration.create(60, SECONDS)
+  implicit def defaultAwaitTimeout: Duration = Duration.create(120, SECONDS)
   
   implicit val docker = Docker("localhost")
   
   lazy val authInfo = DockerAuthCredentials("user", "pass", "me@host.com", "https://index.docker.io/v1/")
+  
+  private val consumeStatusMessage = new Iteratee[Either[DockerErrorInfo, DockerStatusMessage], Option[Either[DockerErrorInfo, DockerStatusMessage]]] {
+    def fold[B](folder: play.api.libs.iteratee.Step[Either[DockerErrorInfo, DockerStatusMessage], Option[Either[DockerErrorInfo, DockerStatusMessage]]] => Future[B])(implicit ec: ExecutionContext): Future[B] = {
+      folder(play.api.libs.iteratee.Step.Cont {
+        case Input.EOF => Done(None, Input.EOF)
+        case Input.Empty => this
+        case Input.El(e) => Done(Some(e), Input.EOF)
+      })
+    }
+  }
+
+  private def folder(step: play.api.libs.iteratee.Step[Either[DockerErrorInfo, DockerStatusMessage], Option[Either[DockerErrorInfo, DockerStatusMessage]]]): Future[Option[Either[DockerErrorInfo, DockerStatusMessage]]] = step match {
+    case play.api.libs.iteratee.Step.Done(a, _) => future(a)
+    case play.api.libs.iteratee.Step.Cont(k) => k(Input.EOF).fold({
+      case play.api.libs.iteratee.Step.Done(a1, _) => Future.successful(a1)
+      case _ => throw new Exception("Erroneous or diverging iteratee")
+    })
+
+    case s => throw new Exception("Erroneous iteratee: " + s)
+  }
   
   def await[T](f: Future[T]): T = {
     Await.result(f, defaultAwaitTimeout)
@@ -47,12 +66,20 @@ class DockerApiSpec extends Specification {
     
     
     "retrieve docker events" in new DockerContext {
-      val events = await(docker.dockerEvents())
-      val take1AndConsume = Enumeratee.take[Seq[Either[DockerErrorInfo, DockerStatusMessage]]](1) &>> Iteratee.consume()
-      val res = await(events |>>> take1AndConsume)
-      res.size must be_>=(0)
+      try {
+    	  val fut = docker.dockerEvents()
+	      docker.imageCreate(RepositoryTag("busybox")).map(_ => docker.imageRemove("busybox"))
+	      val take1AndConsume = Enumeratee.take[Either[DockerErrorInfo, DockerStatusMessage]](1) &>> Iteratee.getChunks
+	      val events = await(fut.flatMap(_ |>>> take1AndConsume))
+	      events.size must be_==(1)
+      } finally {
+        try {
+          await(docker.imageRemove("busybox"))
+        } catch {
+          case t:Throwable => // ignore
+        }
+      }
     }
-    
     
     "auth against docker" in new DockerContext {
       val auth = await(docker.dockerAuth(authInfo))
@@ -73,48 +100,72 @@ class DockerApiSpec extends Specification {
       todo
     }
     
-    "list images" in new DockerContext {
+    "list images" in image {
       val images = await(docker.images())
       images.size must be_>(0)
     }
     
-    "create a new image from busybox base image" in new DockerContext {
-      val res = await(docker.imageCreate(RepositoryTag("busybox")))
-      res.size must be_>(0)
+    "create / pull a new image from busybox base image" in new DockerContext {
+      try {
+    	val res = await(docker.imageCreate(RepositoryTag.create("busybox", Some("pullTest"))).flatMap(_ |>>> consumeStatusMessage))
+    	res must not be empty
+    	res.get must beLike {
+        	case Right(msg) => msg.status must not be empty
+        	case Left(err) => err.code must not be empty
+    	}
+      } finally {
+        docker.imageRemove("busybox")
+      } 
     }
     
     "insert a resource into an image" in new DockerContext {
       todo
     }
     
-    "inspect a docker image" in new DockerContext {
-      val info = await(docker.imageInspect("busybox"))
+    "inspect a docker image" in image {env:Image => 
+      val info = await(docker.imageInspect(env.imageName))
       info.id.id must not beEmpty
     }
     
-    "retrive image history / changelog" in new DockerContext {
-      val hist = await(docker.imageHistory("busybox"))
+    "retrieve image history / changelog" in image {env:Image => 
+      val hist = await(docker.imageHistory(env.imageName))
       hist.size must be_>(0)
     }
     
-    "push image to a registry" in new DockerContext {
-      val res = await(docker.imagePush("dockerspec"))
-      res.size must be_>(0)
+    "push image to a registry" in image {env:Image =>
+      val res = await(docker.imagePush(env.imageName).flatMap(_ |>>> consumeStatusMessage))
+      res must not be empty
+      res.get must beLike {
+        case Right(msg) => msg.status must not be empty
+        case Left(err) => err.code must not be empty
+      }
     }
     
-    "tag an image" in new DockerContext {
-      val res = await(docker.imageTag("dockerspec", "dockerspec"))
-      res must be_==(true)
+    "tag an image" in image {env:Image =>
+      try {
+        val res = await(docker.imageTag(env.imageName, "dockerspec"))
+        res must be_==(true)
+      } finally {
+        await(docker.imageRemove("dockerspec"))
+      }
     }
     
     "remove an image" in new DockerContext {
-      val create = await(docker.imageCreate(RepositoryTag("busybox")))
-      val res = await(docker.imageRemove("busybox"))
-      res must be_==(true)
+      try {
+        val create = await(docker.imageCreate(RepositoryTag("busybox")))
+        val res = await(docker.imageRemove("busybox"))
+        res.size must be_>(0)
+      } finally {
+        try {
+          await(docker.imageRemove("busybox"))
+        } catch {
+          case t:Throwable => // ignore
+        }
+      }
     }
     
-    "search for images" in new DockerContext {
-      val res = await(docker.imageSearch("busybox"))
+    "search for images" in image {env:Image => 
+      val res = await(docker.imageSearch(env.imageName))
       res.size must be_>(0)
     }
     
@@ -123,16 +174,16 @@ class DockerApiSpec extends Specification {
     "import an image from a tarball" in todo
     
     
-    "list containers" in new DockerContext {
+    "list containers" in runningContainer {env:Container => 
       val containers = await(docker.containers(true))
       containers.size must be_>(0)
       val first = containers.head
       
       first.names.get.headOption must be like {
-        case Some(s) => s must startWith("reactive-docker-simple") 
+        case Some(s) => s must be_==(env.containerName)
       }
       
-      first.image must be_==("busybox:latest")
+      first.image.repo must be_==(env.image.repo)
     }
     
     "inspect a simple container" in container {env:Container => 
@@ -144,9 +195,13 @@ class DockerApiSpec extends Specification {
     "inspect a complex container" in complexContainer {env:Container =>
       val info = await(docker.containerInspect(env.containerId))
       info.id.id must be_==(env.containerId.id)
+      todo
     }
     
-    "list processes of a container" in todo
+    "list processes of a container" in runningContainer{env:Container => 
+      val procs = await(docker.containerProcesses(env.containerId, Some("-a")))
+      procs._2.size must be_>(0)
+    }
     
     "retrieve container history / changelog" in container {env:Container => 
       val hist = await(docker.containerChangelog(env.containerId))
@@ -155,35 +210,37 @@ class DockerApiSpec extends Specification {
     
     "export a container to a tarball" in todo
     
-    "create a complex container" in new DockerContext {
+    "create a complex container" in image {env:Image =>
       val name = "reactive-docker-testContainer"
       val hostName = "test.host.com"
         
       val cfg = ContainerConfiguration(cmd = Some(Seq("date")), hostname = Some(hostName))
-      
-      val id = await(docker.containerCreate("busybox", cfg, Some(name)))._1
-      
-      val info = await(docker.containerInspect(id))
-      
-      info.id.id must be_==(id.id)
-      info.name must beLike {
-        case Some(s) => s must be_==(name)
+      val id = await(docker.containerCreate(env.imageName, cfg, Some(name)))._1
+	      
+      try {
+	      val info = await(docker.containerInspect(id))
+	      
+	      info.id.id must be_==(id.id)
+	      info.name must beLike {
+	        case Some(s) => s must be_==(name)
+	      }
+	      
+	      info.config.hostname must beLike {
+	        case Some(s) => s must be_==(hostName)
+	      }
+      } finally {
+	      await(docker.containerStop(id))
+	      await(docker.containerRemove(id, true))
       }
-      
-      info.config.hostname must beLike {
-        case Some(s) => s must be_==(hostName)
-      }
-      
-      await(docker.containerStop(id))
-      await(docker.containerRemove(id, true))
     }
     
     "start a container" in new DockerContext {
       todo
     }
     
-    "stop a container" in new DockerContext {
-      todo
+    "stop a container" in container {env:Container =>
+      val res = await(docker.containerStart(env.containerId))
+      res must be_==(true)
     }
     
     "restart a container" in new DockerContext {
@@ -220,6 +277,10 @@ class DockerApiSpec extends Specification {
     
     "commit a container" in runningContainer {env:Container =>
       val cfg = ContainerConfiguration(cmd = Some(Seq("echo")))
+      val info = await(docker.containerInspect(env.containerId))
+      
+      info.state.running must be_==(true)
+      
       val id = await(docker.containerCommit(env.containerId, RepositoryTag.create("dockerspec", Some("committest")), Some(cfg)))
       id.id must not be empty
     }

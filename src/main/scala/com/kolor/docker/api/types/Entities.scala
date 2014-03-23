@@ -12,22 +12,27 @@ trait DockerEntity {
   
 }
 
-case class DockerErrorInfo(code: Option[Int], message: Option[String]) extends DockerEntity
+case class DockerErrorInfo(code: Option[Int] = None, message: Option[String] = None) extends DockerEntity {
+  override def toString = s"DockerErrorInfo(code=${code.getOrElse(0)}, message=${message.getOrElse("")})"
+}
 
-case class DockerProgressInfo(current: Int, total: Int, start: Option[DateTime])
+case class DockerProgressInfo(current: Int, total: Int, start: Option[DateTime] = None) extends DockerEntity
 
 case class DockerStatusMessage(
-    id: Option[String], 
-    stream: Option[String], 
-    status: Option[String], 
-    from: Option[String], 
-    time: Option[DateTime], 
-    progress: Option[DockerProgressInfo], 
-    error: Option[DockerErrorInfo])
+    id: Option[String] = None, 
+    stream: Option[String] = None, 
+    status: Option[String] = None, 
+    from: Option[String] = None, 
+    time: Option[DateTime] = None, 
+    progress: Option[DockerProgressInfo] = None, 
+    error: Option[DockerErrorInfo] = None) extends DockerEntity {
+ 
+    override def toString = s"DockerStatusMessage(id=${id.getOrElse("none")}, stream=${stream.getOrElse("")}, status=${status.getOrElse("")}, error=${error.map(_.toString).getOrElse("none")})"
+}
 
 case class Container(
     id: ContainerId, 
-    image: String, 
+    image: RepositoryTag, 
     names: Option[Seq[String]], 
     command: String, 
     created: DateTime, 
@@ -56,7 +61,7 @@ case class ContainerNetworkConfiguration(
 ) extends DockerEntity
 
 
-case class DockerPortBinding(privatePort: Int, publicPort: Option[Int] = None, portType: Option[String] = None, hostIp: Option[String] = None) extends DockerEntity
+case class DockerPortBinding(privatePort: Int, publicPort: Option[Int] = None, protocol: Option[String] = None, hostIp: Option[String] = None) extends DockerEntity
 
 case class ContainerHostConfiguration(
     privileged: Boolean = false, 
@@ -93,7 +98,7 @@ case class ContainerChangelogRecord(
     kind: Int
 ) extends DockerEntity
 
-case class DockerRawStreamChunk(channel: Int, chunk: Array[Byte])
+case class DockerRawStreamChunk(channel: Int, size: Int, data: Array[Byte])
     
 case class DockerImage(
     id: String,
@@ -121,7 +126,9 @@ case class DockerImageInfo(
 case class DockerImageHistoryInfo(
     id: ImageId,
     created: DateTime,
-    createdBy: String
+    createdBy: String,
+    tags: Option[Seq[String]],
+    size: Option[Long]
 )
 
 case class DockerImageSearchResult(

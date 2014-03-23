@@ -91,7 +91,7 @@ object Formats {
     def writes(ports: Map[String, DockerPortBinding]): JsValue = {
       val ret = Json.obj()
       ports.map {
-        case (_, cfg) => Map(s"${cfg.privatePort}/${cfg.portType.getOrElse("tcp")}" -> Json.arr(Json.obj("HostPort" -> cfg.publicPort, "HostIp" -> cfg.hostIp)))
+        case (_, cfg) => Map(s"${cfg.privatePort}/${cfg.protocol.getOrElse("tcp")}" -> Json.arr(Json.obj("HostPort" -> cfg.publicPort, "HostIp" -> cfg.hostIp)))
       }
 
       ret
@@ -102,7 +102,7 @@ object Formats {
     def writes(ports: Seq[DockerPortBinding]): JsValue = {
       val ret = Json.obj()
       ports.map {
-        case cfg => Map(s"${cfg.privatePort}/${cfg.portType.getOrElse("tcp")}" -> Json.obj("HostPort" -> cfg.publicPort, "HostIp" -> cfg.hostIp))
+        case cfg => Map(s"${cfg.privatePort}/${cfg.protocol.getOrElse("tcp")}" -> Json.obj("HostPort" -> cfg.publicPort, "HostIp" -> cfg.hostIp))
       }
 
       ret
@@ -113,7 +113,7 @@ object Formats {
     def writes(ports: Map[String, DockerPortBinding]): JsValue = {
       val ret = Json.obj()
       ports.map {
-        case (_, cfg) => Map(s"${cfg.privatePort}/${cfg.portType.getOrElse("tcp")}" -> Json.obj("HostPort" -> cfg.publicPort, "HostIp" -> cfg.hostIp))
+        case (_, cfg) => Map(s"${cfg.privatePort}/${cfg.protocol.getOrElse("tcp")}" -> Json.obj("HostPort" -> cfg.publicPort, "HostIp" -> cfg.hostIp))
       }
 
       ret
@@ -136,12 +136,22 @@ object Formats {
     
   implicit val dockerStatusMessageFmt = Format(
     (
-      (__ \ "ID").readNullable[String] and
+      ((__ \ "id").readNullable[String]) and
       (__ \ "stream").readNullable[String] and
       (__ \ "status").readNullable[String] and
       (__ \ "from").readNullable[String] and
       (__ \ "time").readNullable[Long].map(_.map(new org.joda.time.DateTime(_))) and
-      (__ \ "progress").readNullable[DockerProgressInfo] and
+      /*
+      (__ \ "progressDetail").readNullable[JsValue].map{
+        case Some(obj:JsObject) if (obj.fields.size > 0) => Json.fromJson[DockerProgressInfo](obj) match {
+          case JsSuccess(v, _) => Some(v)
+          case _ => None
+        }
+        case _ => None
+      }.orElse(Reads.pure(None)) and		// we need this dirty hack here, as progressDetail sometimes is an empty object {} which is not handleded properly by readNullable
+      
+      */
+      Reads.pure(Some(DockerProgressInfo(0, 0))) and
       (__ \ "error").readNullable[DockerErrorInfo]
     )(DockerStatusMessage.apply _),
     Json.writes[DockerStatusMessage])
@@ -157,9 +167,11 @@ object Formats {
 
   implicit val dockerImageHistoryInfoFmt = Format(
     (
-      (__ \ "id").read[ImageId](ImageIdFormat) and
-      (__ \ "created").read[Long].map(new org.joda.time.DateTime(_)) and
-      (__ \ "createdBy").read[String])(DockerImageHistoryInfo.apply _),
+      (__ \ "Id").read[ImageId](ImageIdFormat) and
+      (__ \ "Created").read[Long].map(new org.joda.time.DateTime(_)) and
+      (__ \ "CreatedBy").read[String] and
+      (__ \ "tags").readNullable[Seq[String]] and
+      (__ \ "Size").readNullable[Long])(DockerImageHistoryInfo.apply _),
     Json.writes[DockerImageHistoryInfo])
 
 
@@ -358,7 +370,7 @@ object Formats {
   implicit val containerFmt = Format(
     (
       (__ \ "Id").read[ContainerId] and
-      (__ \ "Image").read[String] and
+      (__ \ "Image").read[RepositoryTag] and
       (__ \ "Names").read[JsArray].map {
         case arr if (arr.value.size > 0) => Some(arr.value.seq.map {
           case JsString(s) => s.stripPrefix("/")

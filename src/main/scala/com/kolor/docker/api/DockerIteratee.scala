@@ -5,13 +5,22 @@ import scala.concurrent.ExecutionContext.Implicits.global
 import play.api.libs.json._
 import com.kolor.docker.api.types._
 import com.kolor.docker.api.json.Formats._
+import org.slf4j.LoggerFactory
+import play.api.libs.iteratee.Iteratee
+import play.extras.iteratees.Combinators
+import play.extras.iteratees.JsonEnumeratees
 
 object DockerIteratee {
+  
+  protected val log = LoggerFactory.getLogger(this.getClass());
   
   def readLine = for {
 	  lines <- Enumeratee.breakE[Parsing.MatchInfo[Array[Byte]]](_.isMatch) ><>
 		    Enumeratee.collect{ 
-		      case Parsing.Unmatched(bytes) => new String(bytes)
+		      case Parsing.Unmatched(bytes) => 
+		        val s = new String(bytes)
+		        //log.info(s"readLine $s")
+		        s
 		    } &>>
 		    Iteratee.getChunks
 	  _ <- Enumeratee.take(1) &>> Iteratee.ignore[Parsing.MatchInfo[Array[Byte]]]
@@ -27,75 +36,65 @@ object DockerIteratee {
   )
   .flatMap(r => Iteratee.head.map(_ => r))
     
-    
-  val json: Iteratee[Array[Byte], List[JsObject]] = {
-	Parsing.search("\n".getBytes) ><>
-    Enumeratee.grouped( readLine ) ><>
-	  Enumeratee.collect{
-	    case str => Json.parse(s"[${str.replaceAll("""\}\{""", "},{")}]")
-	  } &>>
-	  Iteratee.getChunks.map{js => 
-	      js.flatMap{
-	      	case o:JsObject => Seq(o)
-	      	case a:JsArray => a.value.filter{
-	      	  case o:JsObject => true
-	      	  case _ => false
-	      	}.map(_.as[JsObject])
-	      	case _ => Seq.empty
-	      }
-	  }
+  
+  val statusStreamIteratee = {
+    play.extras.iteratees.Encoding.decode() ><>
+			//Enumeratee.grouped(play.extras.iteratees.JsonParser.jsonObject) ><>
+			//play.extras.iteratees.JsonEnumeratees.jsValue ><>
+			//play.extras.iteratees.JsonEnumeratees.jsObject(play.extras.iteratees.JsonIteratees.jsValues(play.extras.iteratees.JsonIteratees.jsValue)) ><> 
+			Enumeratee.map[Array[Char]](c => Json.parse(c.map(_.toByte))) ><>
+			Enumeratee.map[JsValue](com.kolor.docker.api.json.Formats.dockerStatusMessageFmt.reads(_)) ><>
+			Enumeratee.collect[JsResult[DockerStatusMessage]] { 
+			  case JsSuccess(value, _) => value
+			  case JsError(err) => 
+			    log.error(s"statusStream JSON parse error: " + err.mkString)
+			    DockerStatusMessage(error = Some(DockerErrorInfo(Some(-1), Some(s"unable to parse JSON: " + err.mkString))))
+			} ><>
+			Enumeratee.map[DockerStatusMessage]{
+	    	  	case msg if msg.error.nonEmpty => 
+	    	  	  log.debug("statusStream mapped to errorMsg: " + msg.error.get)
+	    	  	  Left(msg.error.get)
+	    	  	case msg => 
+	    	  	  log.debug("statusStream mapped to statusMsg: " + msg)
+	    	  	  Right(msg)
+	    	} &> Iteratee.getChunks
   }
   
-  val statusStream: Iteratee[Array[Byte], Seq[Either[DockerErrorInfo, DockerStatusMessage]]] = {
-	Parsing.search("\n".getBytes) ><>
-    Enumeratee.grouped( readLine ) ><>
-	  Enumeratee.collect{
-	    case str => Json.parse(s"[${str.replaceAll("""\}\{""", "},{")}]")
-	  } ><>
-	  Enumeratee.map[JsValue](Json.fromJson[Seq[DockerStatusMessage]](_)) ><>
-	  Enumeratee.collect[JsResult[Seq[DockerStatusMessage]]]{
-	    case JsSuccess(value, _) => value
-	  } ><>
-	  Enumeratee.map[Seq[DockerStatusMessage]]{list => 
-	    list.map{
-	      case msg if (msg.error.nonEmpty) => Left(msg.error.get)
-	      case msg => Right(msg)
-	    }
-	  } &>>
-	  Iteratee.getChunks.map{list =>
-	  		list.flatMap{s => s}
-	  }
+  def asResponseBody(en: Enumerator[Array[Byte]]): Enumerator[String] = {
+    (en &> Parsing.search("\n".getBytes) &> Enumeratee.grouped(readLine) &> Enumeratee.collect{
+      case s => s
+    })
   }
   
-  def toStatusStreamEnumerator(en: Enumerator[Array[Byte]]): Enumerator[Seq[Either[DockerErrorInfo, DockerStatusMessage]]] = {
-	  en &> Parsing.search("\n".getBytes) &>
-	    	Enumeratee.grouped( DockerIteratee.readLine ) &>
-	    	Enumeratee.collect{
-		    	case str => Json.parse(s"[${str.replaceAll("""\}\{""", "},{")}]")
-	    	} &>
-	    	Enumeratee.collect { 
-	    	  case arr:JsArray =>  arr.value.map(Json.fromJson[DockerStatusMessage](_)) 
-	    	} &>
-	    	Enumeratee.collect[Seq[JsResult[DockerStatusMessage]]] { 
-	    	   case list => list.filter{
-	    	     case JsSuccess(value, _) => true
-	    	     case _ => false
-	    	   }.map(_.get)
-	    	} &>
-	    	Enumeratee.map[Seq[DockerStatusMessage]]{list =>
-	    	  list.map {
-	    	  	case msg if msg.error.nonEmpty => Left(msg.error.get)
-	    	  	case msg => Right(msg)
-	    	  }
-	    	} 
-	    	//&> Enumeratee.mapFlatten[Either[DockerErrorInfo,DockerStatusMessage]](x => Enumerator(x, x))
+  def enumerateStatusStream(en: Enumerator[Array[Byte]]): Enumerator[Either[DockerErrorInfo, DockerStatusMessage]] = {
+	en &> play.extras.iteratees.Encoding.decode() &>
+			//Enumeratee.map[Array[Byte]](_.map(_.toChar)) &>
+			//Enumeratee.grouped(play.extras.iteratees.JsonIteratees.jsValue) &> 
+			//play.extras.iteratees.JsonEnumeratees.jsObject(play.extras.iteratees.JsonIteratees.jsValues(play.extras.iteratees.JsonIteratees.jsValue)) &> 
+			//play.extras.iteratees.JsonEnumeratees.jsObject &>
+			//Enumeratee.map[(String, play.api.libs.json.JsValue)](Json.obj(_)) &>
+			Enumeratee.map[Array[Char]](c => Json.parse(c.map(_.toByte))) &>
+			Enumeratee.map[JsValue](com.kolor.docker.api.json.Formats.dockerStatusMessageFmt.reads(_)) &>
+			Enumeratee.collect[JsResult[DockerStatusMessage]] { 
+			  case JsSuccess(value, _) => value
+			  case JsError(err) => 
+			    log.error(s"toStatusStreamEnumerator JSON parse error: " + err.mkString)
+			    DockerStatusMessage(error = Some(DockerErrorInfo(Some(-1), Some(s"unable to parse JSON: " + err.mkString))))
+			} &>
+			Enumeratee.map[DockerStatusMessage]{
+	    	  	case msg if msg.error.nonEmpty => 
+	    	  	  log.debug("toStatusStreamEnumerator mapped errorMsg: " + msg.error.get)
+	    	  	  Left(msg.error.get)
+	    	  	case msg => 
+	    	  	  log.debug("toStatusStreamEnumerator mapped statusMsg: " + msg)
+	    	  	  Right(msg)
+	    	}
   }
   
-  /*
-  def toDockerRawStreamEnumerator(en: Enumerator[Array[Byte]]): Enumerator[DockerRawStreamChunk] = {
+  
+  def rawStreamEnumerator(en: Enumerator[Array[Byte]]): Enumerator[DockerRawStreamChunk] = {
+    /*
     val buff = java.nio.ByteBuffer.allocate(4).order(java.nio.ByteOrder.BIG_ENDIAN)
-
-    
     def parseHeader(data: Array[Byte]): (Int,Long) = {
       val streamType = data(0).toInt
       buff.put(data.slice(4, 7))
@@ -104,12 +103,39 @@ object DockerIteratee {
       buff.clear
       (streamType, sz)
     }
+    */
     
-    val readHeader = (Enumeratee.take[Array[Byte]](8) &>>  Iteratee.consume())
-    
-    en &> Enumeratee.takeWhile[Array[Byte]]{
-      case data => true
+    def getInt(arr: Array[Byte]): Int = {
+	    arr(0)<<24 | arr(1)<<16 | arr(2)<<8 | arr(3)
     }
+    
+    def read(n: Int) = (Enumeratee.take[Array[Byte]](n) &>>  Iteratee.consume())
+    
+    def header = read(8).map{hdr => 
+    	(hdr(0).toInt, getInt(hdr.slice(4,7)))
+    }
+    
+    def chunk = for {
+	    header <- header
+	    data <- read(header._2)
+	  } yield {
+	    DockerRawStreamChunk(header._1.toInt, header._2, data)
+	  }
+  
+    def rawStream = for {
+	    chunks <- Iteratee.repeat(chunk)
+    } yield {
+	    chunks
+    }
+    
+    val rawStreamParser = Iteratee.flatten(en |>> rawStream)
+    
+    en &> 
+      Enumeratee.grouped(rawStreamParser) &>
+      Enumeratee.collect{
+      	case chunks => chunks
+      } &>
+      Enumeratee.mapFlatten[Seq[DockerRawStreamChunk]]( d => Enumerator.apply(d : _*) )
   }
-  */
+  
 }

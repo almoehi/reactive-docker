@@ -29,8 +29,11 @@ object Endpoints {
     (baseUri / "build") ? ("q" -> verbose) & ("nocache" -> noCache) & ("t" -> tag)
   }
   
-  def dockerEvents(since: Long)(implicit docker: DockerClient): Uri = {
-    (baseUri / "events") ? ("since" -> since)
+  def dockerEvents(since: Option[Long] = None)(implicit docker: DockerClient): Uri = {
+    since match {
+      case Some(l) if (l > 0) => (baseUri / "events") ? ("since" -> since)
+      case _ => (baseUri / "events")
+    }
   }
   
   /**
@@ -95,8 +98,8 @@ object Endpoints {
   }
   
   def containerCommit(id: ContainerId, repo: String, tag: Option[String], runConfig: Option[String] = None, message: Option[String] = None, author: Option[String] = None)(implicit docker: DockerClient): Uri = {
-    val u = (baseUri / "containers" / id.toString / "commit")
-    (u) ? ("container" -> id.toString) & ("repo" -> repo) & ("tag" -> tag) & ("m" -> message) & ("author" -> author) & ("run" -> runConfig)
+    val u = (baseUri / "commit")
+    (u) ? ("container" -> id.toString) & ("repo" -> repo) & ("tag" -> tag) & ("m" -> message) & ("author" -> author) // & ("run" -> runConfig)
   }
   
   /**

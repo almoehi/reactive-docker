@@ -6,9 +6,14 @@ import play.api.libs.iteratee.Enumerator
 import play.api.libs.json._
 import com.kolor.docker.api.types.ContainerId
 import org.slf4j.LoggerFactory
+import scala.concurrent.Promise
+import play.api.libs.iteratee._
+import com.ning.http.client.HttpResponseHeaders
 
 sealed trait DockerClient extends DockerApi {  
   override protected val log = LoggerFactory.getLogger(this.getClass());
+  
+  implicit def docker:DockerClient = this
   
   def dockerApiVersion: String
   def dockerHost: String
@@ -29,26 +34,71 @@ sealed trait DockerClient extends DockerApi {
       case Left(t) => Left(t)
     }.recover {
       case t: Throwable => 
-        println(t.getStackTraceString)
+        //log.error(s"(${req.toRequest.getMethod()}) dockerJsonRequest for ${req.url} failed", t)
         Left(t)
     }
   }
   
   final def dockerRequest(req: dispatch.Req)(implicit docker: DockerClient): Future[Either[Throwable, com.ning.http.client.Response]] = {
-    Http(req).either
+    Http(req).either.recover{
+      case t: Throwable =>
+        // log.error(s"(${req.toRequest.getMethod()}) dockerRequest for ${req.url} failed", t)
+        Left(t)
+    }
   }
   
-  final def dockerRequestStream(req: dispatch.Req)(implicit docker: DockerClient): Future[Either[Throwable, Enumerator[Array[Byte]]]] = {
-    Http(req.>(_.getResponseBodyAsStream())).either.map{
-      case Right(stream) => Right(Enumerator.fromStream(stream))
+  /*
+  final def dockerRequestEnumerate(req: dispatch.Req)(implicit docker: DockerClient): Future[Either[Throwable, Enumerator[Array[Byte]]]] = {
+    
+    Http(req > as.Response(_.getResponseBodyAsStream())).either.map{
+      case Right(stream) => 
+        log.info(s"enumerate response of ${req.url}")
+        Right(Enumerator.fromStream(stream))
       case Left(t) => Left(t)
+    }.recover {
+      case t: Throwable => 
+        log.error(s"(${req.toRequest.getMethod()}) dockerRequestEnumerate for ${req.url} failed", t)
+        Left(t)
     }
+  }
+  */
+  
+  final def dockerRequestEnumerate(req: dispatch.Req)(implicit docker: DockerClient): Future[Either[Throwable, (Int, HttpResponseHeaders, Enumerator[Array[Byte]])]] = { 
+    
+    val parser = ByteStream.apply
+    val enumerator = parser.enumerate
+    val reqFuture = Http(req > parser).recover {
+      case t:Throwable => 
+        // log.error(s"(${req.toRequest.getMethod()}) dockerRequestByteStream for ${req.url} failed", t)
+        ()
+    }
+    
+    val en = enumerator &> Enumeratee.onIterateeDone[Array[Byte]]{ () =>
+		log.debug(s"Iteratee is done - aborting connection to ${req.url}")
+		if (!reqFuture.isCompleted) {
+			parser.stop
+		} else {
+			log.debug(s"WS Call to ${req.url} already finished")
+		}
+	}
+    
+	val futureResult = for {
+		status <- parser.promiseStatus.future
+		headers <- parser.promiseHeader.future
+	} yield {
+	  (status, headers, en)
+	}
+	
+	val eitherResult: Future[Either[Throwable, (Int, HttpResponseHeaders, Enumerator[Array[Byte]])]] = futureResult.map(r => Right(r)).recoverWith{
+	  case t:Throwable => Future.successful(Left(t))
+	}
+    
+    eitherResult
   }
 }
 
 sealed case class DockerClientV19(dockerHost: String, dockerPort: Int) extends DockerClient {
   final val dockerApiVersion: String = "1.9"
-  implicit val docker = this
 }
 
 

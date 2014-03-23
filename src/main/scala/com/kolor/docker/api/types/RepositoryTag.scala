@@ -4,6 +4,10 @@ import com.kolor.docker.api.InvalidRepositoryTagFormatException
 
 class RepositoryTag private[RepositoryTag] (val repo: String, val tag: Option[String]) extends DockerEntity {
   override def toString = s"$repo/${tag.getOrElse("latest")}"
+  override def equals(o: Any) = o match {
+    case tag:RepositoryTag => tag.repo.eq(repo) && tag.tag.eq(tag)
+    case _ => false
+  }
 }
 
 object RepositoryTag {

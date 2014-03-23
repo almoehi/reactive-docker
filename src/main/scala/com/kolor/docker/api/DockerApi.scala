@@ -18,17 +18,13 @@ import org.slf4j.LoggerFactory
 
 trait DockerApi extends DockerContainerApi with DockerImagesApi {
   
-	protected val log = LoggerFactory.getLogger(this.getClass());
+	override protected val log = LoggerFactory.getLogger(this.getClass());
 
-    
     /*
 val params = Map("commit" -> "true")
 val headers = Map("Content-type" -> "application/json")
-
 val solr = host("localhost", 8983)
-
 val req = solr / "update" / "json" << a <<? params <:< headers
-
      */
   
   def dockerAuth(authInfo: DockerAuth)(implicit docker: DockerClient, fmt: Format[DockerAuth]): Future[Boolean] = {
@@ -65,27 +61,32 @@ val req = solr / "update" / "json" << a <<? params <:< headers
     }
   }
   
-  def dockerEvents(since: Option[DateTime] = None)(implicit docker: DockerClient, fmt: Format[DockerStatusMessage], errorFmt: Format[DockerErrorInfo], progressFmt: Format[DockerProgressInfo]): Future[Enumerator[Seq[Either[DockerErrorInfo, DockerStatusMessage]]]] = {
-    val req = url(Endpoints.dockerEvents(since.map(_.getMillis()).getOrElse(DateTime.now().getMillis())).toString).GET
-    docker.dockerRequestStream(req).map {
-      case Right(en) => 
-        val (iteratee, en) = Concurrent.joined[Array[Byte]]
-        DockerIteratee.toStatusStreamEnumerator(en)
+  def dockerEvents(since: Option[DateTime] = None)(implicit docker: DockerClient, fmt: Format[DockerStatusMessage], errorFmt: Format[DockerErrorInfo], progressFmt: Format[DockerProgressInfo]): Future[Enumerator[Either[DockerErrorInfo, DockerStatusMessage]]] = {
+    val req = url(Endpoints.dockerEvents(Some(since.map(_.getMillis()).getOrElse(DateTime.now().getMillis() - (100*10)))).toString).GET
+    docker.dockerRequestEnumerate(req).map {
+      case Right(resp) if (resp._1 == 200) => DockerIteratee.enumerateStatusStream(resp._3)
       case Left(StatusCode(500)) => throw new DockerRequestException(s"docker events (since $since) request failed", docker, None, Some(req))
       case Left(t) => throw new DockerRequestException(s"docker events (since $since) request failed", docker, Some(t), Some(req))
     }
   }
   
-  def dockerBuild(tarFile: java.io.File, tag: String, verbose: Boolean = false, nocache: Boolean = false)(implicit docker: DockerClient, auth: DockerAuth = DockerAnonymousAuth): Future[Enumerator[Seq[Either[DockerErrorInfo, DockerStatusMessage]]]] = {
+  def dockerEventsStream(implicit docker: DockerClient, fmt: Format[DockerStatusMessage], errorFmt: Format[DockerErrorInfo], progressFmt: Format[DockerProgressInfo]): Future[Enumerator[Either[DockerErrorInfo, DockerStatusMessage]]] = {
+    val req = url(Endpoints.dockerEvents().toString).GET
+    docker.dockerRequestEnumerate(req).map {
+      case Right(resp) if (resp._1 == 200) => DockerIteratee.enumerateStatusStream(resp._3)
+      case Left(StatusCode(500)) => throw new DockerRequestException(s"docker events stream request failed", docker, None, Some(req))
+      case Left(t) => throw new DockerRequestException(s"docker events stream request failed", docker, Some(t), Some(req))
+    }
+  }
+  
+  def dockerBuild(tarFile: java.io.File, tag: String, verbose: Boolean = false, nocache: Boolean = false)(implicit docker: DockerClient, auth: DockerAuth = DockerAnonymousAuth): Future[Enumerator[Either[DockerErrorInfo, DockerStatusMessage]]] = {
     val req = auth match {
     	case DockerAnonymousAuth => url(Endpoints.dockerBuild(tag, verbose, nocache).toString).POST
     	case data => url(Endpoints.dockerBuild(tag, verbose, nocache).toString).POST <:< Map("X-Registry-Config" -> data.asBase64Encoded)
     }
     
-    docker.dockerRequestStream(req).map { 
-      case Right(en) => 
-        val (iteratee, en) = Concurrent.joined[Array[Byte]]
-        DockerIteratee.toStatusStreamEnumerator(en)
+    docker.dockerRequestEnumerate(req).map { 
+      case Right(resp) if (resp._1 == 200) => DockerIteratee.enumerateStatusStream(resp._3)
       case Left(StatusCode(500)) => throw new DockerInternalServerErrorException(docker)
       case Left(t) => throw new DockerRequestException(s"docker build (from $tarFile) request failed", docker, Some(t), Some(req))
     }
@@ -234,9 +235,7 @@ trait DockerContainerApi {
       case Right(resp) if resp.getStatusCode() == 400 => throw new DockerBadParameterException(s"unable to attach to container $id", docker, req)
       case Right(resp) if resp.getStatusCode() == 404 => throw new NoSuchContainerException(id, docker)
       case Right(resp) if resp.getStatusCode() == 500 => throw new DockerInternalServerErrorException(docker)
-      case Right(resp) if resp.getStatusCode() == 200 => 
-        val en = Enumerator.fromStream(resp.getResponseBodyAsStream())
-        ???	// TODO: implement chunk parser
+      case Right(resp) if resp.getStatusCode() == 200 => DockerIteratee.rawStreamEnumerator(Enumerator.fromStream(resp.getResponseBodyAsStream()))
       case Left(t) => throw new DockerRequestException(s"attaching to stream on container $id failed", docker, Some(t), Some(req))
     }
   }
@@ -247,9 +246,7 @@ trait DockerContainerApi {
       case Right(resp) if resp.getStatusCode() == 400 => throw new DockerBadParameterException(s"unable to attach to container $id", docker, req)
       case Right(resp) if resp.getStatusCode() == 404 => throw new NoSuchContainerException(id, docker)
       case Right(resp) if resp.getStatusCode() == 500 => throw new DockerInternalServerErrorException(docker)
-      case Right(resp) if resp.getStatusCode() == 200 => 
-        val en = Enumerator.fromStream(resp.getResponseBodyAsStream())
-        ???	// TODO: implement chunk parser
+      case Right(resp) if resp.getStatusCode() == 200 => DockerIteratee.rawStreamEnumerator(Enumerator.fromStream(resp.getResponseBodyAsStream()))
       case Left(t) => throw new DockerRequestException(s"attaching to container $id failed", docker, Some(t), Some(req))
     }
   }
@@ -289,11 +286,12 @@ trait DockerContainerApi {
   }
 
   def containerCommit(id: ContainerId, repoTag: RepositoryTag, runConfig: Option[ContainerConfiguration] = None)(implicit docker: DockerClient, fmt: Format[ContainerConfiguration]): Future[ContainerId] = {
-    val req = url(Endpoints.containerCommit(id, repoTag.repo, repoTag.tag, runConfig.map(j => Json.prettyPrint(Json.toJson(j)))).toString).POST
+    val cfg = runConfig.map(j => Json.prettyPrint(Json.toJson(j)))
+    val req = url(Endpoints.containerCommit(id, repoTag.repo, repoTag.tag, cfg).toString).POST << cfg.getOrElse("{}")
     docker.dockerRequest(req).map { 
       case Right(resp) if resp.getStatusCode() == 404 => throw new NoSuchContainerException(id, docker)
       case Right(resp) if resp.getStatusCode() == 500 => throw new DockerInternalServerErrorException(docker)
-      case Right(resp) if resp.getStatusCode() == 200 => 
+      case Right(resp) if (Seq(200, 201).contains(resp.getStatusCode())) => 
         val json = Json.parse(resp.getResponseBody()).asOpt[JsObject]
         val newId: ContainerId = json.flatMap(j => (j \ "Id").asOpt[String]).map(ContainerId(_)).getOrElse(ContainerId.emptyId)
         newId
@@ -303,11 +301,13 @@ trait DockerContainerApi {
   
   def containerCommitWithMessage(id: ContainerId, repoTag: RepositoryTag, withMessage: (String, Option[String]), runConfig: Option[ContainerConfiguration] = None)(implicit docker: DockerClient, fmt: Format[ContainerConfiguration]): Future[ContainerId] = {
     val commitMsg = withMessage
-    val req = url(Endpoints.containerCommit(id, repoTag.repo, repoTag.tag, runConfig.map(j => Json.prettyPrint(Json.toJson(j))), Some(commitMsg._1), commitMsg._2).toString).POST
+    val cfg = runConfig.map(j => Json.prettyPrint(Json.toJson(j)))
+
+    val req = url(Endpoints.containerCommit(id, repoTag.repo, repoTag.tag, cfg, Some(commitMsg._1), commitMsg._2).toString).POST << cfg.getOrElse("{}")
     docker.dockerRequest(req).map { 
       case Right(resp) if resp.getStatusCode() == 404 => throw new NoSuchContainerException(id, docker)
       case Right(resp) if resp.getStatusCode() == 500 => throw new DockerInternalServerErrorException(docker)
-      case Right(resp) if resp.getStatusCode() == 200 => 
+      case Right(resp) if (Seq(200, 201).contains(resp.getStatusCode())) => 
         val json = Json.parse(resp.getResponseBody()).asOpt[JsObject]
         val newId: ContainerId = json.flatMap(j => (j \ "Id").asOpt[String]).map(ContainerId(_)).getOrElse(ContainerId.emptyId)
         newId
@@ -318,6 +318,9 @@ trait DockerContainerApi {
 }
 
 trait DockerImagesApi {
+  
+	protected val log = LoggerFactory.getLogger(this.getClass());
+
   def images(all: Boolean = false)(implicit docker: DockerClient, fmt: Format[DockerImage]): Future[Seq[DockerImage]] = {
     val req = url(Endpoints.images(all).toString).GET
     docker.dockerJsonRequest[Seq[DockerImage]](req).map { 
@@ -327,24 +330,23 @@ trait DockerImagesApi {
     }
   }
   
-  def imageCreate(repoTag: RepositoryTag, registry: Option[String] = None, fromSrc: Option[String] = None)(implicit docker: DockerClient, auth: DockerAuth = DockerAnonymousAuth): Future[Seq[Either[DockerErrorInfo, DockerStatusMessage]]] = {
+  def imageCreate(repoTag: RepositoryTag, registry: Option[String] = None, fromSrc: Option[String] = None)(implicit docker: DockerClient, auth: DockerAuth = DockerAnonymousAuth): Future[Enumerator[Either[DockerErrorInfo, DockerStatusMessage]]] = {
     val req = auth match {
     	case DockerAnonymousAuth => url(Endpoints.imageCreate(repoTag.repo, fromSrc, Some(repoTag.repo), repoTag.tag, registry).toString).POST
     	case data => url(Endpoints.imageCreate(repoTag.repo, fromSrc, Some(repoTag.repo), repoTag.tag, registry).toString).POST <:< Map("X-Registry-Auth" -> data.asBase64Encoded)
     }
-    
-    docker.dockerRequestStream(req).flatMap { 
-      case Right(en) => (en |>>> DockerIteratee.statusStream)
+    docker.dockerRequestEnumerate(req).map { 
+      case Right(resp) if (resp._1 == 200) => DockerIteratee.enumerateStatusStream(resp._3)
       case Left(StatusCode(500)) => throw new DockerInternalServerErrorException(docker)
       case Left(t) => throw new DockerRequestException(s"image pull ${repoTag.toString} (registry: $registry) request failed", docker, Some(t), Some(req))
     }
   }
 
-  def imageInsertResource(image: String, imageTargetPath: String, sourceFileUrl: Uri)(implicit docker: DockerClient): Future[Seq[Either[DockerErrorInfo, DockerStatusMessage]]] = {
+  def imageInsertResource(image: String, imageTargetPath: String, sourceFileUrl: Uri)(implicit docker: DockerClient): Future[Enumerator[Either[DockerErrorInfo, DockerStatusMessage]]] = {
     val req = url(Endpoints.imageInsert(image, imageTargetPath, java.net.URI.create(sourceFileUrl.toString)).toString).POST
     
-    docker.dockerRequestStream(req).flatMap { 
-      case Right(en) => (en |>>> DockerIteratee.statusStream)
+    docker.dockerRequestEnumerate(req).map { 
+      case Right(resp) if (resp._1 == 200) => DockerIteratee.enumerateStatusStream(resp._3)
       case Left(StatusCode(500)) => throw new DockerInternalServerErrorException(docker)
       case Left(t) => throw new DockerRequestException(s"insert resource $sourceFileUrl into image $image:$imageTargetPath request failed", docker, Some(t), Some(req))
     }
@@ -371,17 +373,18 @@ trait DockerImagesApi {
     }
   }
   
-  def imagePush(image: String, registry: Option[String] = None)(implicit docker: DockerClient, auth: DockerAuth = DockerAnonymousAuth): Future[Seq[Either[DockerErrorInfo, DockerStatusMessage]]] = {
+  def imagePush(image: String, registry: Option[String] = None)(implicit docker: DockerClient, auth: DockerAuth = DockerAnonymousAuth): Future[Enumerator[Either[DockerErrorInfo, DockerStatusMessage]]] = {
     val req = auth match {
     	case DockerAnonymousAuth => url(Endpoints.imagePush(image, registry).toString).POST
     	case data => url(Endpoints.imagePush(image, registry).toString).POST <:< Map("X-Registry-Auth" -> data.asBase64Encoded)
     }
     
-    docker.dockerRequestStream(req).flatMap { 
-      case Right(en) => (en |>>> DockerIteratee.statusStream)
-      case Left(StatusCode(500)) => throw new DockerInternalServerErrorException(docker)
-      case Left(StatusCode(404)) => throw new NoSuchImageException(image, docker)
-      case Left(t) => throw new DockerRequestException(s"push image $image request failed", docker, Some(t), Some(req))
+    docker.dockerRequestEnumerate(req).map { 
+      case Right(resp) if (Seq(200, 202, 204).contains(resp._1)) => DockerIteratee.enumerateStatusStream(resp._3)
+      case Right(resp) if resp._1 == 500 => throw new DockerInternalServerErrorException(docker)
+      case Right(resp) if resp._1 == 404 => throw new NoSuchImageException(image, docker)
+      case Right(resp) => throw new DockerRequestException(s"push image $image to $registry failed", docker, None, Some(req))
+      case Left(t) => throw new DockerRequestException(s"push image $image to $registry request failed", docker, Some(t), Some(req))
     }
   }
   
@@ -398,11 +401,13 @@ trait DockerImagesApi {
     }
   }
   
-  def imageRemove(image: String)(implicit docker: DockerClient): Future[Seq[JsObject]] = {
+  def imageRemove(image: String)(implicit docker: DockerClient): Future[Seq[(String,String)]] = {
     val req = url(Endpoints.imageRemove(image).toString).DELETE
     
     docker.dockerJsonRequest[Seq[JsObject]](req).map { 
-      case Right(output) => output
+      case Right(output) => output.map{obj => 
+        (obj.fields.head._1, obj.fields.head._2.asOpt[String].getOrElse(""))
+      }
       case Left(StatusCode(404)) => throw new NoSuchImageException(image, docker)
       case Left(StatusCode(409)) => throw new DockerConflictException(s"conflict while removing image $image", docker)
       case Left(StatusCode(500)) => throw new DockerRequestException(s"removing image $image request failed", docker, None, Some(req))
@@ -422,8 +427,8 @@ trait DockerImagesApi {
   
   def imageExport(image: String)(implicit docker: DockerClient): Future[Enumerator[Array[Byte]]] = {
     val req = url(Endpoints.imageExport(image).toString).GET
-    docker.dockerRequestStream(req).map {
-      case Right(en) => en
+    docker.dockerRequestEnumerate(req).map {
+      case Right(resp) if resp._1 == 200 => resp._3
       case Left(StatusCode(500)) => throw new DockerRequestException(s"exporting image $image request failed", docker, None, Some(req))
       case Left(t) => throw new DockerRequestException(s"exporting image $image request failed", docker, Some(t), Some(req))
     }
