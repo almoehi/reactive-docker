@@ -2,8 +2,11 @@ package com.kolor.docker
 
 
 package object api {
-  import json.Formats
+
   import com.kolor.docker.api.types._
+  import com.kolor.docker.api.json.Formats._
+  
+  implicit val dockerJsonFormats = com.kolor.docker.api.json.Formats
   
   sealed trait DockerAttachable { }
   
