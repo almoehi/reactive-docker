@@ -30,7 +30,7 @@ sealed class Bytes extends AsyncHandler[Unit] {
   
   def onThrowable(t: Throwable) {
     t match {
-    	case _: AbortOnIterateeDone => logger.info(s"WS call aborted on purpose : $t")
+    	case _: AbortOnIterateeDone => logger.debug(s"WS call aborted on purpose : $t")
     	case _ => {
     		logger.error("Exception, closing enumerator channel and leaking exception", t)
     		try {
@@ -57,7 +57,7 @@ sealed class Bytes extends AsyncHandler[Unit] {
     logger.debug("Received Status Code: " + status.getStatusCode())
     
     if (status.getStatusCode() >= 300) {
-      throw new StatusCode(status.getStatusCode())
+      promiseStatus.failure(new StatusCode(status.getStatusCode()))
     } else {
       promiseStatus.success(status.getStatusCode())
     }
@@ -82,6 +82,7 @@ sealed class Bytes extends AsyncHandler[Unit] {
       logger.debug(s"onBodyPartReceived(${str.trim})")
       channel.push(str.trim().getBytes("utf-8"))
     }
+    
     state
   }
   
