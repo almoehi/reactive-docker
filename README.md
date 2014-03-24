@@ -53,6 +53,8 @@ create a new container from busybox image and start it:
 import com.kolor.docker.api._
 import com.kolor.docker.api.json.Formats._
 import scala.concurrent.duration.Duration
+import scala.concurrent.Await
+import play.api.libs.iteratee._
 import scala.concurrent.ExecutionContext.Implicits.global
 
 
