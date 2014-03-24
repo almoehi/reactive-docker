@@ -2,6 +2,8 @@ organization := "com.kolor"
 
 name := "reactive-docker"
 
+version := "0.1-SNAPSHOT"
+
 scalaVersion := "2.10.3"
 
 addCompilerPlugin("org.scala-lang.plugins" % "macro-paradise" % "2.0.0-SNAPSHOT" cross CrossVersion.full)
@@ -38,7 +40,7 @@ pomExtra := (
   <developers>
     <developer>
       <id>almoehi</id>
-      <name>Hannes R.</name>
+      <name>alm oehi</name>
       <url>http://github.com/almoehi/</url>
     </developer>
   </developers>)
@@ -59,7 +61,7 @@ libraryDependencies ++= Seq(
             "com.typesafe.play" %% "play-iteratees" % "2.2.2",
             "net.databinder.dispatch" %% "dispatch-core" % "0.11.0",
             "org.specs2" %% "specs2" % "2.3.10" % "test",
-            "com.typesafe.play.extras" %% "iteratees-extras" % "1.2.1-SNAPSHOT",
+            //"com.typesafe.play.extras" %% "iteratees-extras" % "1.2.1-SNAPSHOT",
             "ch.qos.logback" % "logback-core" % logbackVer,
             "ch.qos.logback" % "logback-classic" % logbackVer
   )
@@ -77,9 +79,9 @@ resolvers ++= Seq(
     Resolver.sonatypeRepo("snapshots"),
     Resolver.sonatypeRepo("releases"),
     Resolver.typesafeRepo("releases"),
-    Resolver.typesafeRepo("snapshots"),
-    "Scalaz Bintray Repo" at "http://dl.bintray.com/scalaz/releases",
-    "spray repo" at "http://repo.spray.io"
+    Resolver.typesafeRepo("snapshots")
+    //"Scalaz Bintray Repo" at "http://dl.bintray.com/scalaz/releases",
+    //"spray repo" at "http://repo.spray.io"
     )
 
 
