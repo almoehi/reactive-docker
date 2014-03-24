@@ -25,7 +25,7 @@ import org.slf4j.LoggerFactory
 @RunWith(classOf[JUnitRunner])
 class DockerQuickSpec extends Specification {
 
-  implicit def defaultAwaitTimeout: Duration = Duration(120, SECONDS)
+  implicit def defaultAwaitTimeout: Duration = Duration(20, SECONDS)
 
   implicit val docker = Docker("localhost")
 
@@ -34,21 +34,33 @@ class DockerQuickSpec extends Specification {
   private val consumeStatusMessage = new Iteratee[Either[DockerErrorInfo, DockerStatusMessage], Option[Either[DockerErrorInfo, DockerStatusMessage]]] {
     def fold[B](folder: play.api.libs.iteratee.Step[Either[DockerErrorInfo, DockerStatusMessage], Option[Either[DockerErrorInfo, DockerStatusMessage]]] => Future[B])(implicit ec: ExecutionContext): Future[B] = {
       folder(play.api.libs.iteratee.Step.Cont {
-        case Input.EOF => Done(None, Input.EOF)
+        case Input.EOF => 
+          log.info(s"iteratee EOF -> done")
+          Done(None, Input.EOF)
         case Input.Empty => this
-        case Input.El(e) => Done(Some(e), Input.EOF)
+        case Input.El(e) => 
+          log.info(s"iteratee received el: $e")
+          Done(Some(e), Input.EOF)
       })
     }
   }
 
   private def folder(step: play.api.libs.iteratee.Step[Either[DockerErrorInfo, DockerStatusMessage], Option[Either[DockerErrorInfo, DockerStatusMessage]]]): Future[Option[Either[DockerErrorInfo, DockerStatusMessage]]] = step match {
-    case play.api.libs.iteratee.Step.Done(a, _) => future(a)
+    case play.api.libs.iteratee.Step.Done(a, _) => 
+      log.info(s"folder done -> return future")
+      future(a)
     case play.api.libs.iteratee.Step.Cont(k) => k(Input.EOF).fold({
-      case play.api.libs.iteratee.Step.Done(a1, _) => Future.successful(a1)
-      case _ => throw new Exception("Erroneous or diverging iteratee")
+      case play.api.libs.iteratee.Step.Done(a1, _) => 
+        log.info(s"folder EOF done -> return successful future")
+        Future.successful(a1)
+      case _ => 
+        log.error(s"folder erroneous iteratee")
+        throw new Exception("Erroneous or diverging iteratee")
     })
 
-    case s => throw new Exception("Erroneous iteratee: " + s)
+    case s => 
+      log.error(s"folder iteratee error: $s")
+      throw new Exception("Erroneous iteratee: " + s)
   }
 
   def await[T](f: Future[T]): T = {
@@ -58,6 +70,12 @@ class DockerQuickSpec extends Specification {
   sequential
 
   "DockerApi should at least be able to" should {
+
+    "list images" in image {
+      val images = await(docker.images())
+      images.size must be_>(0)
+    }
+    
     "create, start, stop and remove a container" in container { env: Container =>
       env.containerId.id must not be empty
       val run = await(docker.containerStart(env.containerId))
@@ -76,13 +94,36 @@ class DockerQuickSpec extends Specification {
       val info = await(docker.imageInspect(env.imageName))
       info.id.id must not be empty
     }
+    
+    "create / pull a new image from busybox base image" in new DockerContext {
+      try {
+    	val res = await(docker.imageCreate(RepositoryTag.create("busybox", Some("pullTest"))).flatMap{en =>
+    	  en |>>> Iteratee.foreach(s => log.info(s"create/pull: $s"))
+    	  en |>>> Iteratee.getChunks
+    	})
+    	res must not be empty
+    	res.size must be_>(0)
+
+    	res(0) must beLike {
+        	case Right(msg) => msg.status must not be empty
+        	case Left(err) => err.message must not be empty
+    	}
+
+      } finally {
+        docker.imageRemove("busybox")
+      } 
+    }
 
     "pull an image" in new DockerContext {
-      val res = await(docker.imageCreate(RepositoryTag("busybox")).flatMap(_ |>>> consumeStatusMessage))
+      val res = await(docker.imageCreate(RepositoryTag("busybox")).flatMap{en =>
+    	  (en |>>> Iteratee.foreach(s => log.info(s"pull: $s")))
+          (en |>>> Iteratee.getChunks)
+      })
 
       res must not be empty
+      res.size must be_>(0)
       
-      res.get must beLike {
+      res(0) must beLike {
         case Right(msg) => msg.status must not be empty
         case Left(err) => err.code must not be empty
       }
@@ -91,17 +132,23 @@ class DockerQuickSpec extends Specification {
       rm.size must be_>(0)
     }
 
+    
     "retrieve docker events" in new DockerContext {
 
       try {
         val maybeStream = docker.dockerEventsStream.flatMap(_ |>>> consumeStatusMessage)
 
         log.info("pulling busybox image")
-        val maybePull = docker.imageCreate(RepositoryTag("busybox")).map { res =>
-          log.info("image has been created")
-          docker.imageRemove("busybox").map(_ => log.info("image has been removed"))
+        
+        val maybePull = docker.imageCreate(RepositoryTag("busybox")).flatMap { res =>
+          (res |>>> Iteratee.ignore).map{u => 
+              log.info("image has been created")
+	          docker.imageRemove("busybox").map(_ => Unit).recover{
+	            case t:Throwable => log.error(s"imageRemove error", t)
+	          }
+          }
         }
-
+		
         val events = await(maybeStream)
 
         events must not be empty
@@ -120,5 +167,17 @@ class DockerQuickSpec extends Specification {
 
       }
     } 
+  
+  "push image to a registry" in image {env:Image =>
+  	  lazy val authInfo = DockerAuthCredentials("user", "pass", "me@host.com", "https://index.docker.io/v1/")
+
+      val res = await(docker.imagePush(env.imageName).flatMap(_ |>>> Iteratee.getChunks))
+      res must not be empty
+      res.size must be_>(0)
+      res(0) must beLike {
+        case Right(msg) => msg.status must not be empty
+        case Left(err) => err.code must not be empty
+      }
+    }
   }
 }

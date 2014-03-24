@@ -17,12 +17,15 @@ import org.specs2.matcher.FutureMatchers.await
 import scala.concurrent.ExecutionContext.Implicits.global
 import com.kolor.docker.api.json.Formats._
 import play.api.libs.iteratee._
+import org.slf4j.LoggerFactory
 
 class DockerApiSpec extends Specification {
 
-  implicit def defaultAwaitTimeout: Duration = Duration.create(120, SECONDS)
+  implicit def defaultAwaitTimeout: Duration = Duration.create(40, SECONDS)
   
   implicit val docker = Docker("localhost")
+  
+  private val log = LoggerFactory.getLogger(getClass())
   
   lazy val authInfo = DockerAuthCredentials("user", "pass", "me@host.com", "https://index.docker.io/v1/")
   
@@ -67,17 +70,33 @@ class DockerApiSpec extends Specification {
     
     "retrieve docker events" in new DockerContext {
       try {
-    	  val fut = docker.dockerEvents()
-	      docker.imageCreate(RepositoryTag("busybox")).map(_ => docker.imageRemove("busybox"))
-	      val take1AndConsume = Enumeratee.take[Either[DockerErrorInfo, DockerStatusMessage]](1) &>> Iteratee.getChunks
-	      val events = await(fut.flatMap(_ |>>> take1AndConsume))
-	      events.size must be_==(1)
+        val maybeStream = docker.dockerEventsStream.flatMap(_ |>>> consumeStatusMessage)
+
+        log.info("pulling busybox image")
+        
+        val maybePull = docker.imageCreate(RepositoryTag("busybox")).flatMap { res =>
+          (res |>>> Iteratee.ignore).flatMap{_ =>
+              log.info("image has been created")
+        	  docker.imageRemove("busybox").map(_ => log.info("image has been removed"))
+          }
+        }
+
+        val events = await(maybeStream)
+
+        events must not be empty
+        events.get must beLike {
+            case Left(err) => err.code must not be empty
+            case Right(msg) => msg.id must not be empty
+        }
+
       } finally {
+
         try {
           await(docker.imageRemove("busybox"))
         } catch {
-          case t:Throwable => // ignore
+          case t: Throwable => // ignore
         }
+
       }
     }
     
@@ -107,11 +126,12 @@ class DockerApiSpec extends Specification {
     
     "create / pull a new image from busybox base image" in new DockerContext {
       try {
-    	val res = await(docker.imageCreate(RepositoryTag.create("busybox", Some("pullTest"))).flatMap(_ |>>> consumeStatusMessage))
+    	val res = await(docker.imageCreate(RepositoryTag.create("busybox", Some("pullTest"))).flatMap(_ |>>> Iteratee.getChunks))
     	res must not be empty
-    	res.get must beLike {
+    	res.size must be_>(0)
+    	res(0) must beLike {
         	case Right(msg) => msg.status must not be empty
-        	case Left(err) => err.code must not be empty
+        	case Left(err) => err.message must not be empty
     	}
       } finally {
         docker.imageRemove("busybox")
@@ -133,9 +153,14 @@ class DockerApiSpec extends Specification {
     }
     
     "push image to a registry" in image {env:Image =>
-      val res = await(docker.imagePush(env.imageName).flatMap(_ |>>> consumeStatusMessage))
+      val res = await(docker.imagePush(env.imageName).flatMap(_ |>>> Iteratee.getChunks).recoverWith{
+        case t:Throwable => 
+          log.error(s"failed to push image", t)
+          Future.successful(List.empty)
+      })
       res must not be empty
-      res.get must beLike {
+      res.size must be_>(0)
+      res(0) must beLike {
         case Right(msg) => msg.status must not be empty
         case Left(err) => err.code must not be empty
       }
@@ -152,7 +177,7 @@ class DockerApiSpec extends Specification {
     
     "remove an image" in new DockerContext {
       try {
-        val create = await(docker.imageCreate(RepositoryTag("busybox")))
+        val create = await(docker.imageCreate(RepositoryTag("busybox")).flatMap(_ |>>> Iteratee.ignore))
         val res = await(docker.imageRemove("busybox"))
         res.size must be_>(0)
       } finally {
