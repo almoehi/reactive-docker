@@ -13,7 +13,8 @@ trait DockerEntity {
 }
 
 case class DockerErrorInfo(code: Option[Int] = None, message: Option[String] = None) extends DockerEntity {
-  override def toString = s"DockerErrorInfo(code=${code.getOrElse(0)}, message=${message.getOrElse("")})"
+  override def toString = s"DockerErrorInfo(code=${code}, message=${message.getOrElse("")})"
+  def isEmpty = code.isEmpty && message.isEmpty
 }
 
 case class DockerProgressInfo(current: Int, total: Int, start: Option[DateTime] = None) extends DockerEntity
@@ -27,7 +28,8 @@ case class DockerStatusMessage(
     progress: Option[DockerProgressInfo] = None, 
     error: Option[DockerErrorInfo] = None) extends DockerEntity {
  
-    override def toString = s"DockerStatusMessage(id=${id.getOrElse("none")}, stream=${stream.getOrElse("")}, status=${status.getOrElse("")}, error=${error.map(_.toString).getOrElse("none")})"
+    override def toString = s"DockerStatusMessage(id=${id.getOrElse("none")}, progress=${progress.getOrElse("none")}, stream=${stream.getOrElse("")}, status=${status.getOrElse("")}, error=${error.map(_.toString).getOrElse("none")})"
+    def isError = error.map(e => e.code.nonEmpty || e.message.nonEmpty).getOrElse(false)
 }
 
 case class Container(

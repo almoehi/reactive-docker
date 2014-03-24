@@ -141,18 +141,8 @@ object Formats {
       (__ \ "status").readNullable[String] and
       (__ \ "from").readNullable[String] and
       (__ \ "time").readNullable[Long].map(_.map(new org.joda.time.DateTime(_))) and
-      /*
-      (__ \ "progressDetail").readNullable[JsValue].map{
-        case Some(obj:JsObject) if (obj.fields.size > 0) => Json.fromJson[DockerProgressInfo](obj) match {
-          case JsSuccess(v, _) => Some(v)
-          case _ => None
-        }
-        case _ => None
-      }.orElse(Reads.pure(None)) and		// we need this dirty hack here, as progressDetail sometimes is an empty object {} which is not handleded properly by readNullable
-      
-      */
-      Reads.pure(Some(DockerProgressInfo(0, 0))) and
-      (__ \ "error").readNullable[DockerErrorInfo]
+      ((__ \ "progressDetail").readNullable[DockerProgressInfo] orElse Reads.pure(None)) and // we need this dirty hack here, as progressDetail sometimes is an empty object {} which is not handleded properly by readNullable
+      ((__ \ "errorDetail").read[DockerErrorInfo].map(e => Some(e)) or (__ \ "error").readNullable[DockerErrorInfo])
     )(DockerStatusMessage.apply _),
     Json.writes[DockerStatusMessage])
     
