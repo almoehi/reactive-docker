@@ -7,8 +7,6 @@ import com.kolor.docker.api.types._
 import com.kolor.docker.api.json.Formats._
 import org.slf4j.LoggerFactory
 import play.api.libs.iteratee.Iteratee
-import play.extras.iteratees.Combinators
-import play.extras.iteratees.JsonEnumeratees
 
 object DockerIteratee {
   
@@ -38,25 +36,30 @@ object DockerIteratee {
     
   
   val statusStreamIteratee = {
-    play.extras.iteratees.Encoding.decode() ><>
+    //play.extras.iteratees.Encoding.decode() ><>
 			//Enumeratee.grouped(play.extras.iteratees.JsonParser.jsonObject) ><>
 			//play.extras.iteratees.JsonEnumeratees.jsValue ><>
 			//play.extras.iteratees.JsonEnumeratees.jsObject(play.extras.iteratees.JsonIteratees.jsValues(play.extras.iteratees.JsonIteratees.jsValue)) ><> 
-			Enumeratee.map[Array[Char]](c => Json.parse(c.map(_.toByte))) ><>
+			Enumeratee.map[Array[Byte]](c => Json.parse(c.map(_.toByte))) ><>
 			Enumeratee.map[JsValue](com.kolor.docker.api.json.Formats.dockerStatusMessageFmt.reads(_)) ><>
 			Enumeratee.collect[JsResult[DockerStatusMessage]] { 
 			  case JsSuccess(value, _) => value
 			  case JsError(err) => 
-			    log.error(s"statusStream JSON parse error: " + err.mkString)
+			    log.error(s"statusStreamIteratee JSON parse error: " + err.mkString)
 			    DockerStatusMessage(error = Some(DockerErrorInfo(Some(-1), Some(s"unable to parse JSON: " + err.mkString))))
 			} ><>
-			Enumeratee.map[DockerStatusMessage]{
-	    	  	case msg if msg.error.nonEmpty => 
-	    	  	  log.debug("statusStream mapped to errorMsg: " + msg.error.get)
+			Enumeratee.map[DockerStatusMessage]{status => status match {
+	    	  	case msg if (msg.error.nonEmpty && !msg.isError) => 
+	    	  	  val msg = status.copy(error = None)
+	    	  	  log.debug("statusStreamIteratee empty errorMsg mapped to statusMsg: " + msg)
+	    	  	  Right(msg)
+	    	  	case msg if msg.isError => 
+	    	  	  log.debug("statusStreamIteratee mapped errorMsg: " + msg.error.get)
 	    	  	  Left(msg.error.get)
 	    	  	case msg => 
-	    	  	  log.debug("statusStream mapped to statusMsg: " + msg)
+	    	  	  log.debug("statusStreamIteratee mapped statusMsg: " + msg)
 	    	  	  Right(msg)
+			  }
 	    	} &> Iteratee.getChunks
   }
   
@@ -67,27 +70,40 @@ object DockerIteratee {
   }
   
   def enumerateStatusStream(en: Enumerator[Array[Byte]]): Enumerator[Either[DockerErrorInfo, DockerStatusMessage]] = {
-	en &> play.extras.iteratees.Encoding.decode() &>
+	en &> //play.extras.iteratees.Encoding.decode() &>
 			//Enumeratee.map[Array[Byte]](_.map(_.toChar)) &>
 			//Enumeratee.grouped(play.extras.iteratees.JsonIteratees.jsValue) &> 
 			//play.extras.iteratees.JsonEnumeratees.jsObject(play.extras.iteratees.JsonIteratees.jsValues(play.extras.iteratees.JsonIteratees.jsValue)) &> 
 			//play.extras.iteratees.JsonEnumeratees.jsObject &>
 			//Enumeratee.map[(String, play.api.libs.json.JsValue)](Json.obj(_)) &>
-			Enumeratee.map[Array[Char]](c => Json.parse(c.map(_.toByte))) &>
+			Enumeratee.map[Array[Byte]]{c => 
+				try {
+				  Json.parse(c)
+				} catch {
+				  case t:Throwable => 
+				    log.error(s"Json.parse failed: $c", t)
+				    Json.obj("message" -> t.getLocalizedMessage())
+				}
+			} &>
 			Enumeratee.map[JsValue](com.kolor.docker.api.json.Formats.dockerStatusMessageFmt.reads(_)) &>
 			Enumeratee.collect[JsResult[DockerStatusMessage]] { 
 			  case JsSuccess(value, _) => value
 			  case JsError(err) => 
-			    log.error(s"toStatusStreamEnumerator JSON parse error: " + err.mkString)
+			    log.error(s"enumerateStatusStream JSON parse error: " + err.mkString)
 			    DockerStatusMessage(error = Some(DockerErrorInfo(Some(-1), Some(s"unable to parse JSON: " + err.mkString))))
 			} &>
-			Enumeratee.map[DockerStatusMessage]{
-	    	  	case msg if msg.error.nonEmpty => 
-	    	  	  log.debug("toStatusStreamEnumerator mapped errorMsg: " + msg.error.get)
+			Enumeratee.map[DockerStatusMessage]{status => status match {
+	    	  	case msg if (msg.error.nonEmpty && !msg.isError) => 
+	    	  	  val msg = status.copy(error = None)
+	    	  	  log.debug("enumerateStatusStream empty errorMsg mapped to statusMsg: " + msg)
+	    	  	  Right(msg)
+	    	  	case msg if msg.isError => 
+	    	  	  log.debug("enumerateStatusStream mapped errorMsg: " + msg.error.get)
 	    	  	  Left(msg.error.get)
 	    	  	case msg => 
-	    	  	  log.debug("toStatusStreamEnumerator mapped statusMsg: " + msg)
+	    	  	  log.debug("enumerateStatusStream mapped statusMsg: " + msg)
 	    	  	  Right(msg)
+			  }
 	    	}
   }
   
