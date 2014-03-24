@@ -11,7 +11,7 @@ import play.api.libs.iteratee._
 import com.ning.http.client.HttpResponseHeaders
 
 sealed trait DockerClient extends DockerApi {  
-  override protected val log = LoggerFactory.getLogger(this.getClass());
+  private val log = LoggerFactory.getLogger(this.getClass());
   
   implicit def docker:DockerClient = this
   
@@ -34,7 +34,7 @@ sealed trait DockerClient extends DockerApi {
       case Left(t) => Left(t)
     }.recover {
       case t: Throwable => 
-        //log.error(s"(${req.toRequest.getMethod()}) dockerJsonRequest for ${req.url} failed", t)
+        log.debug(s"(${req.toRequest.getMethod()}) dockerJsonRequest for ${req.url} failed", t)
         Left(t)
     }
   }
@@ -42,7 +42,7 @@ sealed trait DockerClient extends DockerApi {
   final def dockerRequest(req: dispatch.Req)(implicit docker: DockerClient): Future[Either[Throwable, com.ning.http.client.Response]] = {
     Http(req).either.recover{
       case t: Throwable =>
-        // log.error(s"(${req.toRequest.getMethod()}) dockerRequest for ${req.url} failed", t)
+        log.debug(s"(${req.toRequest.getMethod()}) dockerRequest for ${req.url} failed", t)
         Left(t)
     }
   }
@@ -69,16 +69,17 @@ sealed trait DockerClient extends DockerApi {
     val enumerator = parser.enumerate
     val reqFuture = Http(req > parser).recover {
       case t:Throwable => 
-        // log.error(s"(${req.toRequest.getMethod()}) dockerRequestByteStream for ${req.url} failed", t)
-        ()
+        log.debug(s"(${req.toRequest.getMethod()}) dockerRequestEnumerate for ${req.url} failed", t)
+        throw t
     }
     
     val en = enumerator &> Enumeratee.onIterateeDone[Array[Byte]]{ () =>
-		log.debug(s"Iteratee is done - aborting connection to ${req.url}")
+		log.debug(s"Iteratee is done - try to abort connection to ${req.url}")
 		if (!reqFuture.isCompleted) {
+			log.debug(s"stopping WS call to ${req.url}")
 			parser.stop
 		} else {
-			log.debug(s"WS Call to ${req.url} already finished")
+			log.debug(s"Connection to ${req.url} already finished")
 		}
 	}
     
