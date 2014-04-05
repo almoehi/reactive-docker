@@ -18,6 +18,7 @@ reactive-docker currently supports the following operations:
 * retrieve history / changelog of images
 * retrieve list of running processes of containers
 * attach to docker events stream
+* attach to stdout, stderr and logs (both streaming &)
 
 Installation
 =============
@@ -66,9 +67,21 @@ val containerName = "reactive-docker"
 val imageTag = RepositoryTag.create("busybox", Some("latest"))
 val cfg = ContainerConfig("busybox", cmd)
 
-Await.result(docker.imageCreate(imageTag).flatMap(_ |>>> Iteratee.ignore), timeout)
+// create enumerator to consume & parse stream of docker status messages
+val (it, en) = Concurrent.joined[Array[Byte]]
+val maybeMessages = (en &> DockerEnumeratee.statusStream() |>>> Iteratee.getChunks)
+
+// create image and collect status messages
+Await.result(docker.imageCreate(imageTag)(it).flatMap(_.run), timeout)
+
+// collect & print status messages
+val messages = Await.result(maybeMessages, timeout)
+messages.map(m => println(s"imageCreate: $m"))
+
+// create container
 val containerId = Await.result(docker.containerCreate("busybox", cfg, Some(containerName)), timeout)._1
 
+// run container
 Await.result(docker.containerStart(containerId), timeout)
 println(s"container $containerId is running")
 ```
