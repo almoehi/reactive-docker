@@ -100,7 +100,10 @@ case class ContainerChangelogRecord(
     kind: Int
 ) extends DockerEntity
 
-case class DockerRawStreamChunk(channel: Int, size: Int, data: Array[Byte])
+case class DockerRawStreamChunk(channel: Int, size: Int, data: Array[Byte]) extends DockerEntity {
+  def text = (new String(data, "utf-8")).trim
+  override def toString = s"RawStreamChunk [$channel] '$text'"
+}
     
 case class DockerImage(
     id: String,
