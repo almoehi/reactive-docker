@@ -3,6 +3,7 @@ package com.kolor.docker.api
 import com.kolor.docker.api.types.ContainerId
 
 
+case class DockerResponseCode(code: Int, message: String) extends Exception(s"Docker error (Code $code): $message")
 
 trait DockerException extends Exception {
   def message: String
@@ -15,10 +16,6 @@ trait DockerApiException extends DockerException {
   def client: DockerClient
 }
 
-case class DockerJsonParseError(message: String, json: String, cause: Option[Throwable] = None) extends DockerException {
-	cause.map(initCause(_))
-    def this(message: String) = this(message, null)
-}
 
 case class InvalidContainerIdFormatException(message: String, id: String, cause: Option[Throwable] = None) extends DockerException {
 	cause.map(initCause(_))
@@ -35,19 +32,11 @@ case class InvalidRepositoryTagFormatException(message: String, tag: String, cau
     def this(message: String) = this(message, null)
 }
 
-case class DockerOperationException(message: String, cause: Option[Throwable] = None) extends DockerException {
-	cause.map(initCause(_))
-    def this(message: String) = this(message, null)
-}
-
 case class DockerRequestException(message: String, client: DockerClient, cause: Option[Throwable] = None, request: Option[dispatch.Req]) extends DockerApiException {
 	cause.map(initCause(_))
 }
-case class DockerResponseParseError(message: String, client: DockerClient, response: String, cause: Option[Throwable] = None) extends DockerApiException {
-	cause.map(initCause(_))
-}
 
-case class DockerResponseException(message: String, client: DockerClient, responseCode: Int, cause: Option[Throwable] = None) extends DockerApiException {
+case class DockerResponseParseError(message: String, client: DockerClient, response: String, cause: Option[Throwable] = None) extends DockerApiException {
 	cause.map(initCause(_))
 }
 
@@ -66,7 +55,6 @@ case class NoSuchImageException(image: String, client: DockerClient) extends Doc
 }
 
 case class DockerConflictException(message: String, client: DockerClient) extends DockerApiException
-
 
 case class NoSuchContainerException(id: ContainerId, client: DockerClient) extends DockerApiException {
   def message = s"container $id doesn't exist"

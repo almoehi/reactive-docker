@@ -1,7 +1,6 @@
 package com.kolor.docker.api.types
 
 import play.api.libs.json._
-import com.kolor.docker.api.DockerJsonParseError
 
 sealed case class ContainerConfiguration(
     image: Option[String] = None,
@@ -34,7 +33,7 @@ object ContainerConfig {
     val res = Json.fromJson[ContainerConfiguration](json)(fmt)
     res.asOpt match {
       case Some(c) => c
-      case _ => throw DockerJsonParseError(s"failed to serialize container config to json", Json.prettyPrint(json))
+      case _ => throw new RuntimeException(s"failed to serialize container config to json: " + Json.prettyPrint(json))
     }
   }
   
@@ -42,7 +41,7 @@ object ContainerConfig {
     val res = Json.fromJson[ContainerConfiguration](Json.parse(json))(fmt)
     res.asOpt match {
       case Some(c) => c
-      case _ => throw DockerJsonParseError(s"failed to serialize container config to json", json)
+      case _ => throw new RuntimeException(s"failed to serialize container config to json: " + json)
     }
   }
   

@@ -18,6 +18,10 @@ import scala.concurrent.ExecutionContext.Implicits.global
 import com.kolor.docker.api.json.Formats._
 import play.api.libs.iteratee._
 import org.slf4j.LoggerFactory
+import com.kolor.docker.api.types.ContainerHostConfiguration
+import com.kolor.docker.api.types.ContainerConfiguration
+import com.netaporter.uri.Uri
+import com.netaporter.uri.Uri
 
 class DockerApiSpec extends Specification {
 
@@ -27,27 +31,10 @@ class DockerApiSpec extends Specification {
   
   private val log = LoggerFactory.getLogger(getClass())
   
+  /**
+   * put your won credentials here otherwise some tests might fail
+   */
   lazy val authInfo = DockerAuthCredentials("user", "pass", "me@host.com", "https://index.docker.io/v1/")
-  
-  private val consumeStatusMessage = new Iteratee[Either[DockerErrorInfo, DockerStatusMessage], Option[Either[DockerErrorInfo, DockerStatusMessage]]] {
-    def fold[B](folder: play.api.libs.iteratee.Step[Either[DockerErrorInfo, DockerStatusMessage], Option[Either[DockerErrorInfo, DockerStatusMessage]]] => Future[B])(implicit ec: ExecutionContext): Future[B] = {
-      folder(play.api.libs.iteratee.Step.Cont {
-        case Input.EOF => Done(None, Input.EOF)
-        case Input.Empty => this
-        case Input.El(e) => Done(Some(e), Input.EOF)
-      })
-    }
-  }
-
-  private def folder(step: play.api.libs.iteratee.Step[Either[DockerErrorInfo, DockerStatusMessage], Option[Either[DockerErrorInfo, DockerStatusMessage]]]): Future[Option[Either[DockerErrorInfo, DockerStatusMessage]]] = step match {
-    case play.api.libs.iteratee.Step.Done(a, _) => future(a)
-    case play.api.libs.iteratee.Step.Cont(k) => k(Input.EOF).fold({
-      case play.api.libs.iteratee.Step.Done(a1, _) => Future.successful(a1)
-      case _ => throw new Exception("Erroneous or diverging iteratee")
-    })
-
-    case s => throw new Exception("Erroneous iteratee: " + s)
-  }
   
   def await[T](f: Future[T]): T = {
     Await.result(f, defaultAwaitTimeout)
@@ -56,6 +43,7 @@ class DockerApiSpec extends Specification {
   sequential
   
   "DockerApi" should {
+    
     "connect to a remote docker instance and retrieve its version" in new DockerContext {
       await(docker.dockerVersion).version must beMatching("""\d+\.\d+\.\d+""".r)
     } 
@@ -67,36 +55,41 @@ class DockerApiSpec extends Specification {
       info.driverStatus.size must be_>=(0)
     }
     
-    
     "retrieve docker events" in new DockerContext {
-      try {
-        val maybeStream = docker.dockerEventsStream.flatMap(_ |>>> consumeStatusMessage)
+      try {        
+        val (it, en) = Concurrent.joined[Array[Byte]]
+        val headOption = (en &> DockerEnumeratee.statusStream() |>>> Iteratee.head)
 
-        log.info("pulling busybox image")
-        
-        val maybePull = docker.imageCreate(RepositoryTag("busybox")).flatMap { res =>
-          (res |>>> Iteratee.ignore).flatMap{_ =>
-              log.info("image has been created")
-        	  docker.imageRemove("busybox").map(_ => log.info("image has been removed"))
-          }
+        // this an infinite stream, so the connection won't terminate until the given iteratee is done
+    	docker.dockerEventsStream(it).map {i =>
+    		log.info(s"connection to /events endpoint redeemed")
+    		i.run
         }
+        
+        log.info("pulling busybox image")
+        (docker.imageCreate(RepositoryTag("busybox"))(Iteratee.ignore).flatMap(_.run)).map{u => 
+        	log.info("image has been created")
+        	docker.imageRemove("busybox").map{_ =>
+        		log.info(s"image has been removed")
+        	}.recover{
+        		case t:Throwable => log.error(s"imageRemove error", t)
+        	}
+        }
+		
+        val event = Await.result(headOption, Duration.Inf)
 
-        val events = await(maybeStream)
-
-        events must not be empty
-        events.get must beLike {
+        event must not be empty
+        event.get must beLike {
             case Left(err) => err.code must not be empty
             case Right(msg) => msg.id must not be empty
         }
 
       } finally {
-
         try {
           await(docker.imageRemove("busybox"))
         } catch {
           case t: Throwable => // ignore
         }
-
       }
     }
     
@@ -126,20 +119,39 @@ class DockerApiSpec extends Specification {
     
     "create / pull a new image from busybox base image" in new DockerContext {
       try {
-    	val res = await(docker.imageCreate(RepositoryTag.create("busybox", Some("pullTest"))).flatMap(_ |>>> Iteratee.getChunks))
+        val (it, en) = Concurrent.joined[Array[Byte]]
+        val maybeRes = (en &> DockerEnumeratee.statusStream() |>>> Iteratee.getChunks)
+        
+    	await(docker.imageCreate(RepositoryTag.create("busybox", Some("pullTest")))(it).flatMap(_.run))
+    	
+    	val res = await(maybeRes)
+    	
     	res must not be empty
+    	res.size must be_>(0)
+
+    	res(0) must beLike {
+        	case Right(msg) => msg.status must not be empty
+        	case Left(err) => err.message must not be empty
+    	}
+
+      } finally {
+        docker.imageRemove("busybox")
+      }
+    }
+    
+    "insert a resource into an image" in image {env:Image => 
+      val (it, en) = Concurrent.joined[Array[Byte]]
+      val maybeRes = (en &> DockerEnumeratee.statusStream() |>>> Iteratee.getChunks)
+        
+      await(docker.imageInsertResource("busybox", "/tmp/test.txt", java.net.URI.create("http://xchat.org/changelog.txt"))(it).flatMap(_.run))
+      
+      val res = await(maybeRes)
+      res must not be empty
     	res.size must be_>(0)
     	res(0) must beLike {
         	case Right(msg) => msg.status must not be empty
         	case Left(err) => err.message must not be empty
     	}
-      } finally {
-        docker.imageRemove("busybox")
-      } 
-    }
-    
-    "insert a resource into an image" in new DockerContext {
-      todo
     }
     
     "inspect a docker image" in image {env:Image => 
@@ -153,11 +165,11 @@ class DockerApiSpec extends Specification {
     }
     
     "push image to a registry" in image {env:Image =>
-      val res = await(docker.imagePush(env.imageName).flatMap(_ |>>> Iteratee.getChunks).recoverWith{
-        case t:Throwable => 
-          log.error(s"failed to push image", t)
-          Future.successful(List.empty)
-      })
+      val (it, en) = Concurrent.joined[Array[Byte]]
+      val maybeRes = (en &> DockerEnumeratee.statusStream() |>>> Iteratee.getChunks)
+      await(docker.imagePush(env.imageName)(it).flatMap(_.run))
+      
+      val res = await(maybeRes)
       res must not be empty
       res.size must be_>(0)
       res(0) must beLike {
@@ -177,7 +189,7 @@ class DockerApiSpec extends Specification {
     
     "remove an image" in new DockerContext {
       try {
-        val create = await(docker.imageCreate(RepositoryTag("busybox")).flatMap(_ |>>> Iteratee.ignore))
+        await(docker.imageCreate(RepositoryTag("busybox"))(Iteratee.ignore).flatMap(_.run))
         val res = await(docker.imageRemove("busybox"))
         res.size must be_>(0)
       } finally {
@@ -194,9 +206,26 @@ class DockerApiSpec extends Specification {
       res.size must be_>(0)
     }
     
-    "export an image to a tarball" in todo
+    "export an image to a tarball" in image{env:Image => 
+      	val tmpFile = TempFile.create(s"docker-export-image")
+      	val os = new java.io.FileOutputStream(tmpFile)
+    	await(docker.imageExport("busybox")(Iteratee.foreach(b => os.write(b))).flatMap(_.run))
+    	os.close()
+    	log.info(s"saved exported image tarball to: ${tmpFile.getAbsolutePath()} Size=${tmpFile.length()}")
+    	tmpFile.length().toInt must beGreaterThan(1024)
+    }
     
-    "import an image from a tarball" in todo
+    
+    "import an image from a tarball" in image{env:Image => 
+      	val tmpFile = TempFile.create(s"docker-export-image")
+      	val os = new java.io.FileOutputStream(tmpFile)
+    	await(docker.imageExport("busybox")(Iteratee.foreach(b => os.write(b))).flatMap(_.run))
+    	os.close()
+    	tmpFile.length().toInt must beGreaterThan(1024)
+    	log.info(s"importing image tarball from: ${tmpFile.getAbsolutePath()} Size=${tmpFile.length()}")      	
+      	val importRes = await(docker.imageImport(tmpFile))
+      	importRes must be_==(true)
+    }
     
     
     "list containers" in runningContainer {env:Container => 
@@ -233,7 +262,14 @@ class DockerApiSpec extends Specification {
       hist.size must be_>=(0)
     }
     
-    "export a container to a tarball" in todo
+    "export a container to a tarball" in container{env:Container => 
+      	val tmpFile = TempFile.create(s"docker-export-container")
+      	val os = new java.io.FileOutputStream(tmpFile)
+    	await(docker.containerExport(env.containerId)(Iteratee.foreach(b => os.write(b))).flatMap(_.run))
+    	os.close()    	
+    	log.info(s"exported container ${env.containerId} to tarball: ${tmpFile.getAbsolutePath()} Size=${tmpFile.length()}")
+    	tmpFile.length().toInt must beGreaterThan(1024)
+    }
     
     "create a complex container" in image {env:Image =>
       val name = "reactive-docker-testContainer"
@@ -259,21 +295,42 @@ class DockerApiSpec extends Specification {
       }
     }
     
-    "start a container" in new DockerContext {
-      todo
+    "start a container" in container {env:Container =>
+      val start = await(docker.containerStart(env.containerId))
+      val info = await(docker.containerInspect(env.containerId))
+      
+      start must be_==(true)
+      info.state.running must be_==(true)
     }
     
     "stop a container" in container {env:Container =>
-      val res = await(docker.containerStart(env.containerId))
+      val startRes = await(docker.containerStart(env.containerId))
+      val startInfo = await(docker.containerInspect(env.containerId))
+      
+      startRes must be_==(true)
+      startInfo.state.running must be_==(true)
+      
+      val stopRes = await(docker.containerStart(env.containerId))
+      val stopInfo = await(docker.containerInspect(env.containerId))
+
+      stopRes must be_==(true)
+      stopInfo.state.running must be_==(false)
+    }
+    
+    "restart a container" in container {env:Container =>
+      val res = await(docker.containerRestart(env.containerId))
+      val info = await(docker.containerInspect(env.containerId))
       res must be_==(true)
+      info.state.running must be_==(true)
     }
     
-    "restart a container" in new DockerContext {
-      todo
-    }
-    
-    "kill a container" in new DockerContext {
-      todo
+    "kill a container" in runningContainer {env:Container => 
+      val res = await(docker.containerKill(env.containerId))
+      val info = await(docker.containerInspect(env.containerId))
+      
+      res must be_==(true)
+      info.state.running must be_==(false)
+
     }
     
     "attach to container stdin as stream" in new DockerContext {
@@ -284,20 +341,40 @@ class DockerApiSpec extends Specification {
       todo
     }
     
-    "wait for a container to terminate" in new DockerContext {
-      todo
+    "wait for a container to terminate" in image {env:Image =>
+      val cfg = ContainerConfig("busybox", Seq("/bin/sh", "-c", "sleep 15"))
+      val containerId = await(docker.containerCreate("busybox", cfg))._1
+      val run = docker.containerStart(containerId)
+      
+      val status = await(docker.containerWait(containerId){
+        case status => 
+          log.info(s"container terminated with Status=$status")
+          status
+      })
+      docker.containerRemove(containerId)
+      status must be_==(0)
     }
     
-    "remove a container without its volumes" in new DockerContext {
-      todo
+    "remove a container without its volumes" in container {env:Container => 
+      val res = await(docker.containerRemove(env.containerId))
+      res must be_==(true)
     }
     
-    "remove a container with its volumes" in new DockerContext {
-      todo
+    "remove a container with its volumes" in complexContainer {env:Container =>
+      val stop = await(docker.containerStop(env.containerId))
+      val res = await(docker.containerRemove(env.containerId, true))
+      res must be_==(true)
     }
     
-    "copy a resource from within a container" in new DockerContext {
-      todo
+    "copy a resource from within a container" in runningContainer {env:Container =>
+      val tmpFile = TempFile.create(s"docker-container-copy-resource")
+      val os = new java.io.FileOutputStream(tmpFile)
+      
+      await(docker.containerCopyResource(env.containerId, "/etc/hosts")(Iteratee.foreach(b => os.write(b))).flatMap(_.run))
+      
+      os.close()    	
+      log.info(s"copied /etc/hosts of container ${env.containerId} to: ${tmpFile.getAbsolutePath()} Size=${tmpFile.length()}")
+      tmpFile.length().toInt must beGreaterThan(1024)
     }
     
     "commit a container" in runningContainer {env:Container =>

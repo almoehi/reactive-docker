@@ -26,8 +26,6 @@ package object test {
 	
   case class Container(containerId: ContainerId, containerName: String, image: RepositoryTag, imageCmd: Seq[String])
 	
-
-	
   trait DockerEnv[T] extends AroundOutside[T] {
 	  implicit val docker = Docker("localhost")
 	  implicit val timeout = Duration.create(60, SECONDS)
@@ -38,13 +36,14 @@ package object test {
 	 * provides a spec2 Around context with a basic busybox image
 	 */
 	def image:DockerEnv[Image] = new DockerEnv[Image] {
-	  val env = new Image(Seq("/bin/sh", "date"), RepositoryTag.create("busybox", Some("latest")))
+	  val cmd = Seq("/bin/sh", "-c", "while true; do echo hello world; sleep 1; done")
+	  val env = new Image(cmd, RepositoryTag.create("busybox", Some("latest")))
 	  
 	  // create a context
 	  def around[T : AsResult](t: =>T) = {
 	    try {
 	      log.info(s"prepare image context - pulling busybox:latest ...")
-	      Await.result(docker.imageCreate(env.imageTag).flatMap(_ |>>> Iteratee.ignore), timeout)
+	      Await.result(docker.imageCreate(env.imageTag)(Iteratee.ignore).flatMap(_.run), timeout)
 	      AsResult(t)
 	    } finally {
 	      Await.result(docker.imageRemove(env.imageName), timeout)
@@ -66,7 +65,7 @@ package object test {
 	    val cfg = ContainerConfig("busybox", cmd)
 	    log.info(s"prepare container context - pulling busybox:latest ...")
 
-	    Await.result(docker.imageCreate(imageTag).flatMap(_ |>>> Iteratee.ignore), timeout)
+	    Await.result(docker.imageCreate(imageTag)(Iteratee.ignore).flatMap(_.run), timeout)
 	    implicit val fmt:Format[ContainerConfiguration] = com.kolor.docker.api.json.Formats.containerConfigFmt
 	    log.info(s"prepare container context - creating container $containerName (cmd: ${cmd.mkString})")
 
@@ -96,12 +95,13 @@ package object test {
 	def runningContainer:DockerEnv[Container] = new DockerEnv[Container] {
 	  val env = {
 	    val cmd = Seq("/bin/sh", "-c", "while true; do echo hello world; sleep 1; done")
+
 	    val containerName = "reactive-docker"
 	    val imageTag = RepositoryTag.create("busybox", Some("latest"))
 	    val cfg = ContainerConfig("busybox", cmd)
 	    log.info(s"prepare runningContainer context - pulling busybox:latest ...")
 
-	    Await.result(docker.imageCreate(imageTag).flatMap(_ |>>> Iteratee.ignore), timeout)
+	    Await.result(docker.imageCreate(imageTag)(Iteratee.ignore).flatMap(_.run), timeout)
 	    implicit val fmt:Format[ContainerConfiguration] = com.kolor.docker.api.json.Formats.containerConfigFmt
 	    log.info(s"prepare runningContainer context - creating container $containerName (cmd: ${cmd.mkString})")
 
@@ -142,7 +142,7 @@ package object test {
 	    val cfg = ContainerConfig("busybox", cmd)
 	    log.info(s"prepare runningComplexContainer context - pulling busybox:latest ...")
 
-	    Await.result(docker.imageCreate(imageTag).flatMap(_ |>>> Iteratee.ignore), timeout)
+	    Await.result(docker.imageCreate(imageTag)(Iteratee.ignore).flatMap(_.run), timeout)
 	    implicit val fmt:Format[ContainerConfiguration] = com.kolor.docker.api.json.Formats.containerConfigFmt
 	    log.info(s"prepare runningComplexContainer context - creating container $containerName (cmd: ${cmd.mkString}) (cfg: ${cfg})")
 
