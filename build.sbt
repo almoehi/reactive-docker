@@ -61,7 +61,6 @@ libraryDependencies ++= Seq(
             "com.typesafe.play" %% "play-iteratees" % "2.2.2",
             "net.databinder.dispatch" %% "dispatch-core" % "0.11.0",
             "org.specs2" %% "specs2" % "2.3.10" % "test",
-            //"com.typesafe.play.extras" %% "iteratees-extras" % "1.2.1-SNAPSHOT",
             "ch.qos.logback" % "logback-core" % logbackVer,
             "ch.qos.logback" % "logback-classic" % logbackVer
   )
