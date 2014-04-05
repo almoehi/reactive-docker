@@ -1,13 +1,16 @@
 package com.kolor.docker.api.types
 
 import play.api.libs.json._
+import java.security.MessageDigest
 
 trait DockerAuth{
+  private lazy val base64Encoder = new sun.misc.BASE64Encoder()
+
   def username: String
   def password: String
   def email: String
   def serverAddress: String
-  def asBase64Encoded: String = ""
+  def asBase64Encoded: String = base64Encoder.encode(s"""{"username":"$username", "password":"$password", "email":"$email", "serveraddress":"$serverAddress"}""".getBytes())
 }
 
 case class DockerAuthCredentials(
