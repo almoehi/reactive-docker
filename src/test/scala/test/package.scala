@@ -43,7 +43,7 @@ package object test {
 	  def around[T : AsResult](t: =>T) = {
 	    try {
 	      log.info(s"prepare image context - pulling busybox:latest ...")
-	      Await.result(docker.imageCreate(env.imageTag)(Iteratee.ignore).flatMap(_.run), timeout)
+	      Await.result(docker.imageCreateIteratee(env.imageTag)(Iteratee.ignore).flatMap(_.run), timeout)
 	      AsResult(t)
 	    } finally {
 	      Await.result(docker.imageRemove(env.imageName), timeout)
@@ -65,7 +65,7 @@ package object test {
 	    val cfg = ContainerConfig("busybox", cmd)
 	    log.info(s"prepare container context - pulling busybox:latest ...")
 
-	    Await.result(docker.imageCreate(imageTag)(Iteratee.ignore).flatMap(_.run), timeout)
+	    Await.result(docker.imageCreateIteratee(imageTag)(Iteratee.ignore).flatMap(_.run), timeout)
 	    implicit val fmt:Format[ContainerConfiguration] = com.kolor.docker.api.json.Formats.containerConfigFmt
 	    log.info(s"prepare container context - creating container $containerName (cmd: ${cmd.mkString})")
 
@@ -79,10 +79,15 @@ package object test {
 	    try {
 	      AsResult(t)
 	    } finally {
-	      Await.result(docker.containerStop(env.containerId, 10), timeout)
-	      Await.result(docker.containerRemove(env.containerId, true), timeout)
-	      Await.result(docker.imageRemove("busybox"), timeout)
-	      log.info(s"shutdown & cleaned up container context")
+	      try {
+	    	  Await.result(docker.containerStop(env.containerId, 10), timeout)
+		      Await.result(docker.containerRemove(env.containerId, true), timeout)
+		      Await.result(docker.imageRemove("busybox"), timeout)
+	      } catch {
+	        case t:Throwable => // ignore
+	      } finally {
+	    	  log.info(s"shutdown & cleaned up container context")
+	      }
 	    }
 	  }
 	  // prepare a valid Container env
@@ -101,7 +106,7 @@ package object test {
 	    val cfg = ContainerConfig("busybox", cmd)
 	    log.info(s"prepare runningContainer context - pulling busybox:latest ...")
 
-	    Await.result(docker.imageCreate(imageTag)(Iteratee.ignore).flatMap(_.run), timeout)
+	    Await.result(docker.imageCreateIteratee(imageTag)(Iteratee.ignore).flatMap(_.run), timeout)
 	    implicit val fmt:Format[ContainerConfiguration] = com.kolor.docker.api.json.Formats.containerConfigFmt
 	    log.info(s"prepare runningContainer context - creating container $containerName (cmd: ${cmd.mkString})")
 
@@ -120,10 +125,15 @@ package object test {
 	    try {
 	      AsResult(t)
 	    } finally {
-	      Await.result(docker.containerStop(env.containerId, 10), timeout)
-	      Await.result(docker.containerRemove(env.containerId, true), timeout)
-	      Await.result(docker.imageRemove("busybox"), timeout)
-	      log.info(s"shutdown & cleaned up runningContainer context")
+	      try {
+	    	  Await.result(docker.containerStop(env.containerId, 10), timeout)
+		      Await.result(docker.containerRemove(env.containerId, true), timeout)
+		      Await.result(docker.imageRemove("busybox"), timeout)
+	      } catch {
+	        case t:Throwable => // ignore
+	      } finally {
+	    	  log.info(s"shutdown & cleaned up runningContainer context")
+	      }
 	    }
 	  }
 	  // prepare a valid Container env
@@ -142,7 +152,7 @@ package object test {
 	    val cfg = ContainerConfig("busybox", cmd)
 	    log.info(s"prepare runningComplexContainer context - pulling busybox:latest ...")
 
-	    Await.result(docker.imageCreate(imageTag)(Iteratee.ignore).flatMap(_.run), timeout)
+	    Await.result(docker.imageCreateIteratee(imageTag)(Iteratee.ignore).flatMap(_.run), timeout)
 	    implicit val fmt:Format[ContainerConfiguration] = com.kolor.docker.api.json.Formats.containerConfigFmt
 	    log.info(s"prepare runningComplexContainer context - creating container $containerName (cmd: ${cmd.mkString}) (cfg: ${cfg})")
 
@@ -161,10 +171,15 @@ package object test {
 	    try {
 	      AsResult(t)
 	    } finally {
-	      Await.result(docker.containerStop(env.containerId, 10), timeout)
-	      Await.result(docker.containerRemove(env.containerId, true), timeout)
-	      Await.result(docker.imageRemove("busybox"), timeout)
-	      log.info(s"shutdown & cleaned up runningComplexContainer context")
+	      try {
+	    	  Await.result(docker.containerStop(env.containerId, 10), timeout)
+		      Await.result(docker.containerRemove(env.containerId, true), timeout)
+		      Await.result(docker.imageRemove("busybox"), timeout)
+	      } catch {
+	        case t:Throwable => // ignore
+	      } finally {
+	    	  log.info(s"shutdown & cleaned up runningComplexContainer context")
+	      }
 	    }
 	  }
 	  // prepare a valid Container env

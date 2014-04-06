@@ -9,7 +9,7 @@ package object api {
   implicit val dockerJsonFormats = com.kolor.docker.api.json.Formats
   
   sealed trait DockerAttachable { }
-  
+    
   case object Stdin extends DockerAttachable
   case object Stdout extends DockerAttachable
   case object Stderr extends DockerAttachable

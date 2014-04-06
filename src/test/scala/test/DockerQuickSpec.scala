@@ -65,12 +65,7 @@ class DockerQuickSpec extends Specification {
     
     "create / pull a new image from busybox base image" in new DockerContext {
       try {
-        val (it, en) = Concurrent.joined[Array[Byte]]
-        val maybeRes = (en &> DockerEnumeratee.statusStream() |>>> Iteratee.getChunks)
-        
-    	await(docker.imageCreate(RepositoryTag.create("busybox", Some("pullTest")))(it).flatMap(_.run))
-    	
-    	val res = await(maybeRes)
+    	val res = await(docker.imageCreate(RepositoryTag.create("busybox", Some("pullTest"))))
     	
     	res must not be empty
     	res.size must be_>(0)
@@ -85,13 +80,8 @@ class DockerQuickSpec extends Specification {
       } 
     }
     
-    "pull an image" in new DockerContext {
-      val (it, en) = Concurrent.joined[Array[Byte]]
-      val maybeRes = (en &> DockerEnumeratee.statusStream() |>>> Iteratee.getChunks)
-        
-      await(docker.imageCreate(RepositoryTag("busybox"))(it).flatMap(_.run))
-
-      val res = await(maybeRes)
+    "pull an image" in new DockerContext { 
+      val res = await(docker.imageCreate(RepositoryTag("busybox")))
       
       res must not be empty
       res.size must be_>(0)
@@ -111,13 +101,13 @@ class DockerQuickSpec extends Specification {
         val headOption = (en &> DockerEnumeratee.statusStream() |>>> Iteratee.head)
 
         // this an infinite stream, so the connection won't terminate until the given iteratee is done
-    	docker.dockerEventsStream(it).map {i =>
+    	docker.dockerEventsStreamIteratee(it).map {i =>
     		log.info(s"connection to /events endpoint redeemed")
     		i.run
         }
         
         log.info("pulling busybox image")
-        (docker.imageCreate(RepositoryTag("busybox"))(Iteratee.ignore).flatMap(_.run)).map{u => 
+        (docker.imageCreate(RepositoryTag("busybox"))).map{u => 
         	log.info("image has been created")
         	docker.imageRemove("busybox").map{_ =>
         		log.info(s"image has been removed")
@@ -149,7 +139,7 @@ class DockerQuickSpec extends Specification {
   	  val (it, en) = Concurrent.joined[Array[Byte]]
       val maybeRes = (en &> DockerEnumeratee.statusStream() |>>> Iteratee.getChunks)
         
-      await(docker.imagePush(env.imageName)(it).flatMap(_.run))
+      await(docker.imagePush(env.imageName))
       
       val res = await(maybeRes)
       res must not be empty
@@ -164,7 +154,7 @@ class DockerQuickSpec extends Specification {
       val tmpFile = TempFile.create(s"docker-container-copy-resource")
       val os = new java.io.FileOutputStream(tmpFile)
 
-      val it = docker.containerCopyResource(env.containerId, "/etc/hosts")(Iteratee.foreach(b => os.write(b))).flatMap(_.run)
+      val it = docker.containerCopyResourceIteratee(env.containerId, "/etc/hosts")(Iteratee.foreach(b => os.write(b))).flatMap(_.run)
 
       val res = await(it)
       os.close()    	
