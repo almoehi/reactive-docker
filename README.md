@@ -8,17 +8,12 @@ A fully reactive client for the docker remote API.
 * async streaming capabilities using enumerators (e.g. attaching to docker events stream)
 * supports latest docker remote API v1.10
 
-reactive-docker currently supports the following operations:
+pending features:
 
-* list images and containers
-* create/pull and remove images
-* create containers from images
-* start, stop and commit containers
-* inspect containers and images
-* retrieve history / changelog of images
-* retrieve list of running processes of containers
-* attach to docker events stream
-* attach to stdout, stderr and logs (both streaming &)
+* attach & writing to stdin of a container
+* docker build (implemented but not tested yet)
+* simplify API usage by providing additional convenience methods e.g. ``docker.run`` or ``docker.pull``
+* publish sbt artifacts
 
 Installation
 =============
