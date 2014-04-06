@@ -9,6 +9,11 @@ import org.slf4j.LoggerFactory
 import play.api.libs.iteratee.Iteratee
 import play.api.libs.iteratee.Input.{El, Empty, EOF}
 
+
+object DockerIteratee {
+  def statusStream = DockerEnumeratee.statusStream() &>> Iteratee.getChunks
+}
+
 object DockerEnumeratee {
   
   protected val log = LoggerFactory.getLogger(this.getClass());
