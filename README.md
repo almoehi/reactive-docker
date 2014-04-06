@@ -67,15 +67,10 @@ val containerName = "reactive-docker"
 val imageTag = RepositoryTag.create("busybox", Some("latest"))
 val cfg = ContainerConfig("busybox", cmd)
 
-// create enumerator to consume & parse stream of docker status messages
-val (it, en) = Concurrent.joined[Array[Byte]]
-val maybeMessages = (en &> DockerEnumeratee.statusStream() |>>> Iteratee.getChunks)
 
-// create image and collect status messages
-Await.result(docker.imageCreate(imageTag)(it).flatMap(_.run), timeout)
+// create image, returns a list of docker messages when finished
+val messages = Await.result(docker.imageCreate(imageTag), timeout)
 
-// collect & print status messages
-val messages = Await.result(maybeMessages, timeout)
 messages.map(m => println(s"imageCreate: $m"))
 
 // create container
