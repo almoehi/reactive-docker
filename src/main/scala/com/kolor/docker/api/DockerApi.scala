@@ -16,6 +16,8 @@ import org.joda.time.DateTime
 import play.api.libs.iteratee._
 import org.slf4j.LoggerFactory
 import scala.concurrent.ExecutionContext
+import java.io.FileOutputStream
+import com.kolor.docker.api.types.DockerStatusMessage
 
 sealed trait DockerApiHelper {
   
@@ -78,7 +80,6 @@ val req = solr / "update" / "json" << a <<? params <:< headers
     }
   }
   
-  
   def dockerVersion()(implicit docker: DockerClient, fmt: Format[DockerVersion]): Future[DockerVersion] = {
     val req = url(Endpoints.dockerVersion.toString).GET
     docker.dockerJsonRequest[DockerVersion](req).map {
@@ -88,27 +89,31 @@ val req = solr / "update" / "json" << a <<? params <:< headers
     }
   }
   
-  def dockerEvents(since: Option[DateTime] = None)(implicit docker: DockerClient, fmt: Format[DockerStatusMessage], errorFmt: Format[DockerErrorInfo], progressFmt: Format[DockerProgressInfo]): Future[Seq[Either[DockerErrorInfo, DockerStatusMessage]]] = {
+  def dockerEvents(since: Option[DateTime] = None)(implicit docker: DockerClient, fmt: Format[DockerStatusMessage], errorFmt: Format[DockerErrorInfo], progressFmt: Format[DockerProgressInfo]): Future[List[Either[DockerErrorInfo, DockerStatusMessage]]] = {
     val req = url(Endpoints.dockerEvents(Some(since.map(_.getMillis()).getOrElse(DateTime.now().getMillis() - (100*10)))).toString).GET
-    val (iteratee, enumerator) = Concurrent.joined[Array[Byte]]
-    recoverDockerAwareRequest(docker.dockerRequestIteratee(req)(_ => iteratee)).flatMap{it => 
-      it.run
-    }
-    enumerator &> DockerEnumeratee.statusStream() |>>> Iteratee.getChunks
+    recoverDockerAwareRequest(docker.dockerRequestIteratee(req)(_ => DockerIteratee.statusStream)).flatMap(_.run)
   }
   
-  def dockerEventsStream[T](consumer: Iteratee[Array[Byte], T] = Iteratee.ignore)(implicit docker: DockerClient, fmt: Format[DockerStatusMessage], errorFmt: Format[DockerErrorInfo], progressFmt: Format[DockerProgressInfo]): Future[Iteratee[Array[Byte], T]] = {
+  def dockerEventsStreamIteratee[T](consumer: Iteratee[Array[Byte], T])(implicit docker: DockerClient, fmt: Format[DockerStatusMessage], errorFmt: Format[DockerErrorInfo], progressFmt: Format[DockerProgressInfo]): Future[Iteratee[Array[Byte], T]] = {
     val req = url(Endpoints.dockerEvents().toString).GET
     recoverDockerAwareRequest(docker.dockerRequestIteratee(req)(_ => consumer))
   }
   
-  def dockerBuild[T](tarFile: java.io.File, tag: String, verbose: Boolean = false, nocache: Boolean = false)(consumer: Iteratee[Array[Byte], T])(implicit docker: DockerClient, auth: DockerAuth = DockerAnonymousAuth): Future[Iteratee[Array[Byte], T]] = {
+  def dockerEventsStream(fn: (Either[DockerErrorInfo,DockerStatusMessage]) => Unit)(implicit docker: DockerClient, fmt: Format[DockerStatusMessage], errorFmt: Format[DockerErrorInfo], progressFmt: Format[DockerProgressInfo]): Future[Unit] = {
+    dockerEventsStreamIteratee(DockerEnumeratee.statusStream() &>> Iteratee.foreach(fn)).flatMap(_.run)
+  }
+  
+  def dockerBuildIteratee[T](tarFile: java.io.File, tag: String, verbose: Boolean = false, nocache: Boolean = false)(consumer: Iteratee[Array[Byte], T])(implicit docker: DockerClient, auth: DockerAuth = DockerAnonymousAuth): Future[Iteratee[Array[Byte], T]] = {
     val req = auth match {
     	case DockerAnonymousAuth => url(Endpoints.dockerBuild(tag, verbose, nocache).toString).POST
     	case data => url(Endpoints.dockerBuild(tag, verbose, nocache).toString).POST <:< Map("X-Registry-Config" -> data.asBase64Encoded)
     }
     
     recoverDockerAwareRequest(docker.dockerRequestIteratee(req)(_ => consumer))
+  }
+  
+  def dockerBuild(tarFile: java.io.File, tag: String, verbose: Boolean = false, nocache: Boolean = false)(implicit docker: DockerClient, auth: DockerAuth = DockerAnonymousAuth): Future[List[Either[DockerErrorInfo, DockerStatusMessage]]] = {
+    dockerBuildIteratee(tarFile, tag, verbose, nocache)(DockerIteratee.statusStream).flatMap(_.run)
   }
 }
 
@@ -191,10 +196,25 @@ trait DockerContainerApi extends DockerApiHelper {
     }
   }
   
-  def containerExport[T](id: ContainerId)(consumer: Iteratee[Array[Byte], T] = Iteratee.ignore)(implicit docker: DockerClient): Future[Iteratee[Array[Byte], T]] = {
+  def containerExportIteratee[T](id: ContainerId)(consumer: Iteratee[Array[Byte], T])(implicit docker: DockerClient): Future[Iteratee[Array[Byte], T]] = {
     val req = url(Endpoints.containerExport(id).toString).GET
     implicit val containerId = id
     recoverContainerAwareRequest(docker.dockerRequestIteratee(req)(_ => consumer))
+  }
+  
+  def containerExport(id: ContainerId, toFile: java.io.File)(implicit docker: DockerClient): Future[java.io.File] = {
+    val os = new FileOutputStream(toFile)
+    containerExportIteratee(id)(Iteratee.foreach[Array[Byte]](d => os.write(d))).flatMap(_.run).map{_ =>
+    	os.close()
+    	toFile
+    }
+  }
+  
+  def containerExport(id: ContainerId, os: java.io.OutputStream)(implicit docker: DockerClient): Future[java.io.OutputStream] = {
+    containerExportIteratee(id)(Iteratee.foreach[Array[Byte]](d => os.write(d))).flatMap(_.run).map{_ =>
+    	os.close()
+    	os
+    }
   }
   
   def containerStart(id: ContainerId, config: Option[ContainerHostConfiguration] = None)(implicit docker: DockerClient, fmt: Format[ContainerHostConfiguration]): Future[Boolean] = {
@@ -289,11 +309,15 @@ trait DockerContainerApi extends DockerApiHelper {
     }
   }
   
-  def containerCopyResource[T](id: ContainerId, resourcePath: String)(consumer: Iteratee[Array[Byte], T] = Iteratee.ignore)(implicit docker: DockerClient): Future[Iteratee[Array[Byte], T]] = {
+  def containerCopyResourceIteratee[T](id: ContainerId, resourcePath: String)(consumer: Iteratee[Array[Byte], T] = Iteratee.ignore)(implicit docker: DockerClient): Future[Iteratee[Array[Byte], T]] = {
     val json = Json.obj("Resource" -> resourcePath)
     val req = url(Endpoints.containerCopy(id).toString).POST << Json.prettyPrint(json) <:< Map("Content-Type" -> "application/json")
     implicit val containerId = id
     recoverContainerAwareRequest(docker.dockerRequestIteratee(req)(_ => consumer))
+  }
+  
+  def containerCopyResource(id: ContainerId, resourcePath: String)(implicit docker: DockerClient): Future[List[Either[DockerErrorInfo,DockerStatusMessage]]] = {
+	  containerCopyResourceIteratee(id, resourcePath)(DockerIteratee.statusStream).flatMap(_.run)
   }
 
   def containerCommit(id: ContainerId, repoTag: RepositoryTag, runConfig: Option[ContainerConfiguration] = None)(implicit docker: DockerClient, fmt: Format[ContainerConfiguration]): Future[ContainerId] = {
@@ -341,7 +365,7 @@ trait DockerImagesApi extends DockerApiHelper {
     }
   }
   
-  def imageCreate[T](repoTag: RepositoryTag, registry: Option[String] = None, fromSrc: Option[String] = None)(consumer: Iteratee[Array[Byte], T] = Iteratee.ignore)(implicit docker: DockerClient, auth: DockerAuth = DockerAnonymousAuth): Future[Iteratee[Array[Byte], T]] = {
+  def imageCreateIteratee[T](repoTag: RepositoryTag, registry: Option[String] = None, fromSrc: Option[String] = None)(consumer: Iteratee[Array[Byte], T])(implicit docker: DockerClient, auth: DockerAuth = DockerAnonymousAuth): Future[Iteratee[Array[Byte], T]] = {
     val req = auth match {
     	case DockerAnonymousAuth => url(Endpoints.imageCreate(repoTag.repo, fromSrc, Some(repoTag.repo), repoTag.tag, registry).toString).POST
     	case data => url(Endpoints.imageCreate(repoTag.repo, fromSrc, Some(repoTag.repo), repoTag.tag, registry).toString).POST <:< Map("X-Registry-Auth" -> data.asBase64Encoded)
@@ -349,11 +373,19 @@ trait DockerImagesApi extends DockerApiHelper {
     implicit val image = repoTag.repo
     recoverImageAwareRequest(docker.dockerRequestIteratee(req)(_ => consumer))
   }
-
-  def imageInsertResource[T](image: String, imageTargetPath: String, sourceFileUrl: java.net.URI)(consumer: Iteratee[Array[Byte], T] = Iteratee.ignore)(implicit docker: DockerClient): Future[Iteratee[Array[Byte], T]] = {
+  
+  def imageCreate(repoTag: RepositoryTag, registry: Option[String] = None, fromSrc: Option[String] = None)(implicit docker: DockerClient, auth: DockerAuth = DockerAnonymousAuth): Future[List[Either[DockerErrorInfo, DockerStatusMessage]]] = {
+    imageCreateIteratee(repoTag, registry, fromSrc)(DockerIteratee.statusStream).flatMap(_.run)
+  }
+  
+  def imageInsertResourceIteratee[T](image: String, imageTargetPath: String, sourceFileUrl: java.net.URI)(consumer: Iteratee[Array[Byte], T])(implicit docker: DockerClient): Future[Iteratee[Array[Byte], T]] = {
     val req = url(Endpoints.imageInsert(image, imageTargetPath, sourceFileUrl).toString).POST
     implicit val img = image
     recoverImageAwareRequest(docker.dockerRequestIteratee(req)(_ => consumer))
+  }
+  
+  def imageInsertResource(image: String, imageTargetPath: String, sourceFileUrl: java.net.URI)(implicit docker: DockerClient): Future[List[Either[DockerErrorInfo, DockerStatusMessage]]] = {
+	  imageInsertResourceIteratee(image, imageTargetPath, sourceFileUrl)(DockerIteratee.statusStream).flatMap(_.run)
   }
   
   def imageInspect(image: String)(implicit docker: DockerClient, fmt: Format[DockerImageInfo]): Future[DockerImageInfo] = {
@@ -377,13 +409,17 @@ trait DockerImagesApi extends DockerApiHelper {
     }
   }
   
-  def imagePush[T](image: String, registry: Option[String] = None)(consumer: Iteratee[Array[Byte], T] = Iteratee.ignore)(implicit docker: DockerClient, auth: DockerAuth = DockerAnonymousAuth): Future[Iteratee[Array[Byte], T]] = {
+  def imagePushIteratee[T](image: String, registry: Option[String] = None)(consumer: Iteratee[Array[Byte], T])(implicit docker: DockerClient, auth: DockerAuth = DockerAnonymousAuth): Future[Iteratee[Array[Byte], T]] = {
     val req = auth match {
     	case DockerAnonymousAuth => url(Endpoints.imagePush(image, registry).toString).POST
     	case data => url(Endpoints.imagePush(image, registry).toString).POST <:< Map("X-Registry-Auth" -> data.asBase64Encoded)
     }
     implicit val img = image
     recoverImageAwareRequest(docker.dockerRequestIteratee(req)(_ => consumer))
+  }
+  
+  def imagePush(image: String, registry: Option[String] = None)(implicit docker: DockerClient, auth: DockerAuth = DockerAnonymousAuth): Future[List[Either[DockerErrorInfo, DockerStatusMessage]]] = {
+	  imagePushIteratee(image, registry)(DockerIteratee.statusStream).flatMap(_.run)
   }
   
   def imageTag(image: String, repo: String, force: Boolean = false)(implicit docker: DockerClient): Future[Boolean] = {
@@ -423,10 +459,25 @@ trait DockerImagesApi extends DockerApiHelper {
     }
   }
   
-  def imageExport[T](image: String)(consumer: Iteratee[Array[Byte], T] = Iteratee.ignore)(implicit docker: DockerClient): Future[Iteratee[Array[Byte], T]] = {
+  def imageExport[T](image: String)(consumer: Iteratee[Array[Byte], T])(implicit docker: DockerClient): Future[Iteratee[Array[Byte], T]] = {
     val req = url(Endpoints.imageExport(image).toString).GET
     implicit val img = image
     recoverImageAwareRequest(docker.dockerRequestIteratee(req)(_ => consumer))
+  }
+  
+  def imageExport(image: String, toFile: java.io.File)(implicit docker: DockerClient): Future[java.io.File] = {
+	  val os = new FileOutputStream(toFile)
+	  imageExport(image)(Iteratee.foreach[Array[Byte]](d => os.write(d))).flatMap(_.run).map{_ => 
+	  	os.close()
+	  	toFile
+	  }
+  }
+  
+  def imageExport(image: String, os: java.io.OutputStream)(implicit docker: DockerClient): Future[java.io.OutputStream] = {
+	  imageExport(image)(Iteratee.foreach[Array[Byte]](d => os.write(d))).flatMap(_.run).map{_ => 
+	  	os.close()
+	  	os
+	  }
   }
   
   def imageImport(tarFile: java.io.File)(implicit docker: DockerClient): Future[Boolean] = {
