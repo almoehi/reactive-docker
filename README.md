@@ -5,12 +5,12 @@ A fully reactive client for the docker remote API.
 
 
 * fully async and non-blocking design
+* full typesafety
 * async streaming capabilities using enumerators (e.g. attaching to docker events stream)
 * supports latest docker remote API v1.10
 
 pending features:
 
-* attach & writing to stdin of a container
 * docker build (implemented but not tested yet)
 * simplify API usage by providing additional convenience methods e.g. ``docker.run`` or ``docker.pull``
 * publish sbt artifacts
