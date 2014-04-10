@@ -59,6 +59,7 @@ libraryDependencies ++= Seq(
             "com.netaporter" %% "scala-uri" % "0.4.1",
             "com.typesafe.play" %% "play-json" % "2.2.2",
             "com.typesafe.play" %% "play-iteratees" % "2.2.2",
+            // "com.typesafe.akka" %% "akka-actor" % "2.4-SNAPSHOT",
             "net.databinder.dispatch" %% "dispatch-core" % "0.11.0",
             "org.specs2" %% "specs2" % "2.3.10" % "test",
             "ch.qos.logback" % "logback-core" % logbackVer,

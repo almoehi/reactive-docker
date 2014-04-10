@@ -25,5 +25,5 @@ object RepositoryTag {
 	    Some(tag.toString)
 	  }
 	  
-	  def create(repo: String, tag: Option[String]) = new RepositoryTag(repo, tag)
+	  def create(repo: String, tag: Option[String] = None) = new RepositoryTag(repo, tag)
 }

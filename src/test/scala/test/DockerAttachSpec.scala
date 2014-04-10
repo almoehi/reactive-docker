@@ -20,6 +20,9 @@ import org.specs2.runner.JUnitRunner
 import com.kolor.docker.api.json.Formats._
 import play.api.libs.iteratee._
 import org.slf4j.LoggerFactory
+import java.util.concurrent.TimeUnit
+import scala.concurrent.duration.TimeUnit
+import scala.util.Try
 
 @RunWith(classOf[JUnitRunner])
 class DockerAttachSpec extends Specification {
@@ -37,12 +40,45 @@ class DockerAttachSpec extends Specification {
   sequential
 
   "DockerApi" should {
-    
+
+    "be able to attach to stdout + stdin stream and send commands to stdin" in ubuntu {env:Container =>
+
+      await(docker.containerStart(env.containerId))
+      log.info(s"container up and running: ${env.containerId}")
+
+      // create stdout consumer which will collect the first output line
+      val (it, en) = Concurrent.joined[Array[Byte]]
+      val maybeRes = (en &> DockerEnumeratee.rawStream |>>> Iteratee.head)
+
+
+      // generate stdin input
+      val stdin = Enumerator.generateM[Array[Byte]]{
+        // don't forget to append a \n to the shell command
+        Future.successful(Some("uname -a\n".toCharArray.map(_.toByte)))
+      } >>> Enumerator.eof
+
+      // attach to stdout, connect stdin enumerator and run
+      await(docker.attachStream(env.containerId, true, false, false, Some(stdin))(it).flatMap(_.run))
+
+      // kill container, otherwise it would run forever
+      docker.containerStop(env.containerId)
+
+      // res should contain one DockerRawChunk with output of "uname -a" command
+      val res = await(maybeRes)
+
+      // log.info(s"result: $res")
+
+      res must not be empty
+      res.get.channel must be_==(0)
+      res.get.text must startWith("Linux")
+    }
+
+
     "be able to attach to stdout stream" in runningContainer {env:Container =>
       val (it, en) = Concurrent.joined[Array[Byte]]
       val maybeRes = (en &> DockerEnumeratee.rawStream |>>> Iteratee.head)
         
-      docker.attachStream(env.containerId, false, true, false, false)(it).flatMap(_.run)
+      docker.attachStream(env.containerId, true, false, false)(it).flatMap(_.run)
       
       val res = await(maybeRes)
 
@@ -56,10 +92,10 @@ class DockerAttachSpec extends Specification {
       val (it, en) = Concurrent.joined[Array[Byte]]
       val maybeRes = (en &> DockerEnumeratee.rawStream |>>> Iteratee.head)
 
-      await(docker.attach(env.containerId, false, true, false, false)(it).flatMap(_.run))
+      await(docker.attach(env.containerId, true, false, false)(it).flatMap(_.run))
 
       val res = await(maybeRes)
-
+      // TODO: returns no output with new container, how to test?
       res must beEmpty  // attaching to stdout returns nothing so far
     }
 
@@ -67,11 +103,11 @@ class DockerAttachSpec extends Specification {
       val (it, en) = Concurrent.joined[Array[Byte]]
       val maybeRes = (en &> DockerEnumeratee.rawStream |>>> Iteratee.head)
 
-      docker.attachStream(env.containerId, false, false, false, true)(it).flatMap(_.run)
+      docker.attachStream(env.containerId, false, false, true)(it).flatMap(_.run)
 
       val res = await(maybeRes)
 
-      log.info(s"response: $res")
+      //log.info(s"response: $res")
       res must not be empty
     }
 
@@ -79,11 +115,13 @@ class DockerAttachSpec extends Specification {
       val (it, en) = Concurrent.joined[Array[Byte]]
       val maybeRes = (en &> DockerEnumeratee.rawStream |>>> Iteratee.head)
 
-      await(docker.attach(env.containerId, false, false, false, true)(it).flatMap(_.run))
+      await(docker.attach(env.containerId, false, false, true)(it).flatMap(_.run))
 
       val res = await(maybeRes)
-      log.info(s"response: $res")
+      //log.info(s"response: $res")
+      // TODO: returns no output with new container, how to test?
       res must beEmpty  // attaching to stdout returns nothing so far
     }
+
   }
 }

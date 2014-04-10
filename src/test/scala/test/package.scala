@@ -93,6 +93,47 @@ package object test {
 	  // prepare a valid Container env
 	  def outside: Container = env
 	}
+
+  /**
+   * provides a spec2 Around context with a created but not running ubuntu container
+   */
+  def ubuntu:DockerEnv[Container] = new DockerEnv[Container] {
+    val env = {
+      val cmd = Seq("/bin/bash")
+      val containerName = "reactive-docker"
+      val imageTag = RepositoryTag.create("ubuntu", Some("latest"))
+      val cfg = ContainerConfiguration(image=Some(imageTag.repo), cmd=Some(cmd), openStdin=Some(true)   )
+
+      log.info(s"prepare container context - pulling ubuntu:latest ...")
+
+      Await.result(docker.imageCreateIteratee(imageTag)(Iteratee.ignore).flatMap(_.run), timeout)
+      implicit val fmt:Format[ContainerConfiguration] = com.kolor.docker.api.json.Formats.containerConfigFmt
+      log.info(s"prepare container context - creating container $containerName (cmd: ${cmd.mkString})")
+
+      val containerId = Await.result(docker.containerCreate("ubuntu", cfg, Some(containerName)), timeout)._1
+      log.info(s"prepare container context - container ready with  $containerId")
+      new Container(containerId, containerName, imageTag, cmd)
+    }
+
+    // create a context
+    def around[T : AsResult](t: =>T) = {
+      try {
+        AsResult(t)
+      } finally {
+        try {
+          Await.result(docker.containerStop(env.containerId, 10), timeout)
+          Await.result(docker.containerRemove(env.containerId, true), timeout)
+          // Await.result(docker.imageRemove("busybox"), timeout)
+        } catch {
+          case t:Throwable => // ignore
+        } finally {
+          log.info(s"shutdown & cleaned up container context")
+        }
+      }
+    }
+    // prepare a valid Container env
+    def outside: Container = env
+  }
 	
 	/**
 	 * provides a spec2 Around context with a running container
