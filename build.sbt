@@ -4,9 +4,11 @@ name := "reactive-docker"
 
 version := "0.1-SNAPSHOT"
 
-scalaVersion := "2.10.3"
+scalaVersion := "2.11.2"
 
-addCompilerPlugin("org.scala-lang.plugins" % "macro-paradise" % "2.0.0-SNAPSHOT" cross CrossVersion.full)
+resolvers += Resolver.sonatypeRepo("releases")
+
+addCompilerPlugin("org.scalamacros" % "paradise" % "2.0.1" cross CrossVersion.full)
 
 publishMavenStyle := true
 
@@ -56,12 +58,12 @@ val logbackVer = "1.0.9"
 
 libraryDependencies ++= Seq(
             //"org.scalaz.stream" %% "scalaz-stream" % "0.3.1",
-            "com.netaporter" %% "scala-uri" % "0.4.1",
-            "com.typesafe.play" %% "play-json" % "2.2.2",
-            "com.typesafe.play" %% "play-iteratees" % "2.2.2",
+            "com.netaporter" %% "scala-uri" % "0.4.2",
+            "com.typesafe.play" %% "play-json" % "2.3.4",
+            "com.typesafe.play" %% "play-iteratees" % "2.3.4",
             // "com.typesafe.akka" %% "akka-actor" % "2.4-SNAPSHOT",
-            "net.databinder.dispatch" %% "dispatch-core" % "0.11.0",
-            "org.specs2" %% "specs2" % "2.3.10" % "test",
+            "net.databinder.dispatch" %% "dispatch-core" % "0.11.2",
+            "org.specs2" %% "specs2" % "2.4.2" % "test",
             "ch.qos.logback" % "logback-core" % logbackVer,
             "ch.qos.logback" % "logback-classic" % logbackVer
   )
