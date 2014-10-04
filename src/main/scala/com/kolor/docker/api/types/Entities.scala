@@ -72,7 +72,9 @@ case class ContainerHostConfiguration(
     containerIdFile: Option[String] = None, 
     lxcConf: Option[Map[String,String]] = None, 
     portBindings: Option[Map[String, DockerPortBinding]] = None, 
-    links: Option[Seq[ContainerId]] = None
+    links: Option[Seq[String]] = None,
+    capAdd: Seq[String] = Seq.empty,		// new with 1.14
+    capDrop: Seq[String] = Seq.empty		// new with 1.14
 ) extends DockerEntity
 
 case class ContainerInfo(
@@ -124,7 +126,8 @@ case class DockerImageInfo(
     author: Option[String],
     config: ContainerConfiguration,
     architecture: Option[String],
-    size: Option[Long]
+    size: Option[Long],
+    comment: String
 ) extends DockerEntity
 
 
@@ -160,8 +163,9 @@ case class DockerInfo(
     nEventsListener: Int,
     nFd: Int,
     nGoroutines: Int,
-    swapLimit: Boolean
+    swapLimit: Boolean,
+    sockets: Seq[String] = Seq.empty	// new with 1.13 - TODO: check exact format
 )
 
-case class DockerVersion(version: String, gitCommit: Option[String], goVersion: Option[String], arch: Option[String], kernelVersion: Option[String], os: Option[String])
+case class DockerVersion(version: String, gitCommit: Option[String], goVersion: Option[String], arch: Option[String], kernelVersion: Option[String], os: Option[String], apiVersion: Option[String])
 
