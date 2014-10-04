@@ -34,6 +34,7 @@ sealed trait DockerClient extends DockerApi {
   private def nullConsumer(hdr: DockerResponseHeaders) =  Iteratee.ignore[Array[Byte]]
   
   final def dockerJsonRequest[T](req: dispatch.Req)(implicit docker: DockerClient, fmt: Format[T]): Future[Either[Throwable, T]] = {
+    log.debug(s"dockerJsonRequest: ${req}")
     Http(req).either.map{
       case Right(resp) if (Seq(200, 201, 202).contains(resp.getStatusCode())) => 
         Json.parse(resp.getResponseBody()).validate[T].fold(
@@ -56,6 +57,7 @@ sealed trait DockerClient extends DockerApi {
   }
   
   final def dockerRequest(req: dispatch.Req)(implicit docker: DockerClient): Future[Either[Throwable, com.ning.http.client.Response]] = {
+    log.debug(s"dockerRequest: ${req}")
     Http(req).either.recover{
       case t: Throwable =>
         log.debug(s"(${req.toRequest.getMethod()}) dockerRequest for ${req.url} failed", t)
@@ -64,7 +66,8 @@ sealed trait DockerClient extends DockerApi {
   }
   
   def dockerRequestIteratee[A](req: dispatch.Req)(consumer: DockerResponseHeaders => Iteratee[Array[Byte], A] = nullConsumer(_))(implicit ec: ExecutionContext): Future[Iteratee[Array[Byte], A]] = {
-      val iterateeP = Promise[Iteratee[Array[Byte], A]]()
+      log.debug(s"dockerRequestIteratee: ${req}")
+	  val iterateeP = Promise[Iteratee[Array[Byte], A]]()
       var iteratee: Iteratee[Array[Byte], A] = null
       var statusCode = 0
       var statusText = ""
@@ -159,14 +162,18 @@ sealed case class DockerClientV19(dockerHost: String, dockerPort: Int) extends D
   final val dockerApiVersion: String = "1.9"
 }
 
+sealed case class DockerClientV114(dockerHost: String, dockerPort: Int) extends DockerClient {
+  final val dockerApiVersion: String = "1.14"
+}
+
 
 object Docker {
   def apply(host: String): DockerClient = {
-    DockerClientV19(host, 4243)
+    DockerClientV114(host, 4243)
   }
   
   def apply(host: String, port: Int): DockerClient = {
-    DockerClientV19(host, port)
+    DockerClientV114(host, port)
   }
   
 }
