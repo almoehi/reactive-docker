@@ -16,7 +16,7 @@ package object test {
   private val log = LoggerFactory.getLogger(getClass())
   
   class DockerContext extends Scope {
-	  implicit lazy val docker: DockerClient = Docker("localhost")
+	  implicit lazy val docker: DockerClient = Docker("192.168.59.103", 2375)
 	  implicit val timeout = Duration.create(60, SECONDS)
   }
   
@@ -27,7 +27,7 @@ package object test {
   case class Container(containerId: ContainerId, containerName: String, image: RepositoryTag, imageCmd: Seq[String])
 	
   trait DockerEnv[T] extends AroundOutside[T] {
-	  implicit val docker = Docker("localhost")
+	  implicit val docker = Docker("192.168.59.103", 2375)
 	  implicit val timeout = Duration.create(60, SECONDS)
   }
 	
