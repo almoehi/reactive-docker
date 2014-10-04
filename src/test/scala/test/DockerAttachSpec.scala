@@ -17,7 +17,7 @@ import org.specs2.matcher.FutureMatchers.await
 import scala.concurrent.ExecutionContext.Implicits.global
 import org.junit.runner.RunWith
 import org.specs2.runner.JUnitRunner
-import com.kolor.docker.api.json.Formats._
+import com.kolor.docker.api.json.FormatsV112._
 import play.api.libs.iteratee._
 import org.slf4j.LoggerFactory
 import java.util.concurrent.TimeUnit
@@ -29,7 +29,7 @@ class DockerAttachSpec extends Specification {
 
   implicit def defaultAwaitTimeout: Duration = Duration(20, SECONDS)
 
-  implicit val docker = Docker("localhost")
+  implicit val docker = Docker("192.168.59.103", 2375)
 
   val log = LoggerFactory.getLogger(getClass())
 

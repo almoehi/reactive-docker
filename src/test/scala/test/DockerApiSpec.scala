@@ -27,7 +27,7 @@ class DockerApiSpec extends Specification {
 
   implicit def defaultAwaitTimeout: Duration = Duration.create(40, SECONDS)
   
-  implicit val docker = Docker("localhost")
+  implicit val docker = Docker("192.168.59.103", 2375)
   
   private val log = LoggerFactory.getLogger(getClass())
   
