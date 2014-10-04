@@ -65,12 +65,26 @@ case class ContainerNetworkConfiguration(
 
 case class DockerPortBinding(privatePort: Int, publicPort: Option[Int] = None, protocol: Option[String] = None, hostIp: Option[String] = None) extends DockerEntity
 
+
+sealed trait ContainerNetworkingMode extends DockerEntity { def name: String }
+
+object ContainerNetworkingMode {
+	case object Default extends ContainerNetworkingMode { val name = "bridge" }
+	case object Bridge extends ContainerNetworkingMode { val name = "bridge" }
+	case object Host extends ContainerNetworkingMode { val name = "host" }
+	case object None extends ContainerNetworkingMode { val name = "none" }
+	case class Container(name: String) extends ContainerNetworkingMode {
+	  def container = ""	// TODO: extract container from string: container:<containerIdOrName>
+	}
+}
+
 case class ContainerHostConfiguration(
     privileged: Boolean = false, 
     publishAllPorts: Boolean = false,
     binds: Option[Seq[BindMountVolume]] = None, 
     containerIdFile: Option[String] = None, 
     lxcConf: Option[Map[String,String]] = None, 
+    networkMode: ContainerNetworkingMode = ContainerNetworkingMode.Default,
     portBindings: Option[Map[String, DockerPortBinding]] = None, 
     links: Option[Seq[String]] = None,
     capAdd: Seq[String] = Seq.empty,		// new with 1.14

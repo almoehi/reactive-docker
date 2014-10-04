@@ -42,6 +42,23 @@ object Formats {
       case oid: ContainerId => JsString(oid.id)
     }
   }
+  
+  implicit object ContainerNetworkingModeFormat extends PartialFormat[ContainerNetworkingMode] {
+    def partialReads: PartialFunction[JsValue, JsResult[ContainerNetworkingMode]] = {
+      case o: JsString => o.value.toLowerCase match {
+        case "bridge" => JsSuccess(ContainerNetworkingMode.Bridge)
+        case "host" => JsSuccess(ContainerNetworkingMode.Host)
+        case "none" => JsSuccess(ContainerNetworkingMode.None)
+        case s if (s.startsWith("container:")) => JsSuccess(ContainerNetworkingMode.Container(s))
+        case _ => JsSuccess(ContainerNetworkingMode.Default)        
+      }
+      case _ => JsError("ContainerNetworkingMode is empty or invalid")
+    }
+
+    val partialWrites: PartialFunction[DockerEntity, JsValue] = {
+      case mode: ContainerNetworkingMode => JsString(mode.name)
+    }
+  }
 
   implicit object ImageIdFormat extends PartialFormat[ImageId] {
     def partialReads: PartialFunction[JsValue, JsResult[ImageId]] = {
@@ -254,6 +271,7 @@ object Formats {
       } and
       (__ \ "ContainerIdFile").readNullable[String] and
       (__ \ "LxcConf").readNullable[Map[String, String]] and
+      (__ \ "NetworkMode").read[ContainerNetworkingMode](ContainerNetworkingModeFormat).orElse(Reads.pure(ContainerNetworkingMode.Default)) and
       (__ \ "PortBindings").readNullable[Map[String, JsObject]].map { opt =>
         val regex = """^(\d+)/(tcp|udp)$""".r
         opt.map(_.flatMap {
@@ -269,6 +287,7 @@ object Formats {
       (__ \ "Binds").writeNullable[Seq[DockerVolume]](bindMountHostConfigWrite) and
       (__ \ "ContainerIdFile").writeNullable[String] and
       (__ \ "LxcConf").writeNullable[Map[String, String]] and
+      (__ \ "NetworkMode").write[ContainerNetworkingMode](Formats.ContainerNetworkingModeFormat) and
       (__ \ "PortBindings").writeNullable[Map[String, DockerPortBinding]](hostConfigPortBindingWrite) and
       (__ \ "Links").writeNullable[Seq[String]] and
       (__ \ "CapAdd").write[Seq[String]] and

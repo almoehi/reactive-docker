@@ -238,6 +238,7 @@ object FormatsV112 {
       } and
       (__ \ "ContainerIdFile").readNullable[String] and
       (__ \ "LxcConf").readNullable[Map[String, String]] and
+      (__ \ "NetworkMode").read[ContainerNetworkingMode](Formats.ContainerNetworkingModeFormat).orElse(Reads.pure(ContainerNetworkingMode.Default)) and
       (__ \ "PortBindings").readNullable[Map[String, JsObject]].map { opt =>
         val regex = """^(\d+)/(tcp|udp)$""".r
         opt.map(_.flatMap {
@@ -254,6 +255,7 @@ object FormatsV112 {
       (__ \ "Binds").writeNullable[Seq[DockerVolume]](bindMountHostConfigWrite) and
       (__ \ "ContainerIdFile").writeNullable[String] and
       (__ \ "LxcConf").writeNullable[Map[String, String]] and
+      (__ \ "NetworkMode").write[ContainerNetworkingMode](Formats.ContainerNetworkingModeFormat) and
       (__ \ "PortBindings").writeNullable[Map[String, DockerPortBinding]](hostConfigPortBindingWrite) and
       (__ \ "Links").writeNullable[Seq[String]] and
       (__ \ "CapAdd").write[Seq[String]] and
