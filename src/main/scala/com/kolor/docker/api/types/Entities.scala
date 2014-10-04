@@ -78,6 +78,12 @@ object ContainerNetworkingMode {
 	}
 }
 
+case class ContainerRestartPolicy(
+    name: String,
+    maximumRetryCount: Int
+) extends DockerEntity
+
+
 case class ContainerHostConfiguration(
     privileged: Boolean = false, 
     publishAllPorts: Boolean = false,
@@ -85,6 +91,7 @@ case class ContainerHostConfiguration(
     containerIdFile: Option[String] = None, 
     lxcConf: Option[Map[String,String]] = None, 
     networkMode: ContainerNetworkingMode = ContainerNetworkingMode.Default,
+    restartPolicy: Option[ContainerRestartPolicy] = None,
     portBindings: Option[Map[String, DockerPortBinding]] = None, 
     links: Option[Seq[String]] = None,
     capAdd: Seq[String] = Seq.empty,		// new with 1.14
