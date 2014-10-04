@@ -188,6 +188,12 @@ object Formats {
       (__ \ "Path").read[String] and
       (__ \ "Kind").read[Int])(ContainerChangelogRecord.apply _),
     Json.writes[ContainerChangelogRecord])
+    
+  implicit val containerRestartPolicyFmt = Format(
+    (
+      (__ \ "Name").read[String] and
+      (__ \ "MaximumRetryCount").read[Int])(ContainerRestartPolicy.apply _),
+    Json.writes[ContainerRestartPolicy])
 
   implicit val portBindFmt = Format(
     (
@@ -234,8 +240,8 @@ object Formats {
 
   implicit val containerNetworkConfigFmt = Format(
     (
-      (__ \ "IPAddress").readNullable[String] and
-      (__ \ "IPPrefixLen").readNullable[Int] and
+      ((__ \ "IpAddress").readNullable[String] or (__ \ "IPAddress").readNullable[String]) and
+      ((__ \ "IpPrefixLen").readNullable[Int] or (__ \ "IPPrefixLen").readNullable[Int]) and
       (__ \ "Gateway").readNullable[String] and
       (__ \ "Bridge").readNullable[String] and
       (__ \ "PortMapping").readNullable[Seq[String]] and
@@ -272,6 +278,7 @@ object Formats {
       (__ \ "ContainerIdFile").readNullable[String] and
       (__ \ "LxcConf").readNullable[Map[String, String]] and
       (__ \ "NetworkMode").read[ContainerNetworkingMode](ContainerNetworkingModeFormat).orElse(Reads.pure(ContainerNetworkingMode.Default)) and
+      (__ \ "RestartPolicy").readNullable[ContainerRestartPolicy](containerRestartPolicyFmt) and
       (__ \ "PortBindings").readNullable[Map[String, JsObject]].map { opt =>
         val regex = """^(\d+)/(tcp|udp)$""".r
         opt.map(_.flatMap {
@@ -287,7 +294,8 @@ object Formats {
       (__ \ "Binds").writeNullable[Seq[DockerVolume]](bindMountHostConfigWrite) and
       (__ \ "ContainerIdFile").writeNullable[String] and
       (__ \ "LxcConf").writeNullable[Map[String, String]] and
-      (__ \ "NetworkMode").write[ContainerNetworkingMode](Formats.ContainerNetworkingModeFormat) and
+      (__ \ "NetworkMode").write[ContainerNetworkingMode](ContainerNetworkingModeFormat) and
+      (__ \ "RestartPolicy").writeNullable[ContainerRestartPolicy](containerRestartPolicyFmt) and      
       (__ \ "PortBindings").writeNullable[Map[String, DockerPortBinding]](hostConfigPortBindingWrite) and
       (__ \ "Links").writeNullable[Seq[String]] and
       (__ \ "CapAdd").write[Seq[String]] and
