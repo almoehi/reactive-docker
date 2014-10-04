@@ -17,6 +17,10 @@ object Endpoints {
     baseUri / "info"
   }
   
+  def dockerPing(implicit docker: DockerClient): Uri = {
+    baseUri / "_ping"
+  }
+  
   def dockerVersion(implicit docker: DockerClient): Uri = {
     baseUri / "version"
   }
@@ -25,13 +29,16 @@ object Endpoints {
     baseUri / "auth"
   }
   
-  def dockerBuild(tag: String, verbose: Boolean = false, noCache: Boolean = false)(implicit docker: DockerClient): Uri = {
-    (baseUri / "build") ? ("q" -> verbose) & ("nocache" -> noCache) & ("t" -> tag)
+  def dockerBuild(tag: String, verbose: Boolean = false, noCache: Boolean = false, forceRm: Boolean = false)(implicit docker: DockerClient): Uri = {
+    (baseUri / "build") ? ("q" -> verbose) & ("nocache" -> noCache) & ("t" -> tag) & ("forcerm" -> forceRm)
   }
   
-  def dockerEvents(since: Option[Long] = None)(implicit docker: DockerClient): Uri = {
+  def dockerEvents(since: Option[Long] = None, until: Option[Long] = None)(implicit docker: DockerClient): Uri = {
     since match {
-      case Some(l) if (l > 0) => (baseUri / "events") ? ("since" -> since)
+      case Some(l) if (l > 0) => until match {
+        case Some(u) if (u > 0) => (baseUri / "events") ? ("since" -> l) & ("until" -> u)
+        case _ => (baseUri / "events") ? ("since" -> l)
+      }
       case _ => (baseUri / "events")
     }
   }
@@ -85,21 +92,25 @@ object Endpoints {
     (baseUri / "containers" / id.toString / "attach") ? ("stream" -> stream) & ("stdin" -> stdin) & ("stdout" -> stdout) & ("stderr" -> stderr) & ("logs" -> logs)
   }
   
+  def containerLogs(id: ContainerId, stream: Boolean, stdout: Boolean = true, stderr: Boolean = false, withTimestamps: Boolean = false)(implicit docker: DockerClient): Uri = {
+    (baseUri / "containers" / id.toString / "logs") ? ("follow" -> stream) & ("stdout" -> stdout) & ("stderr" -> stderr) & ("timestamps" -> withTimestamps)
+  }
+  
   def containerWait(id: ContainerId)(implicit docker: DockerClient): Uri = {
     baseUri / "containers" / id.toString / "wait"
   }
   
-  def containerRemove(id: ContainerId, withVolumes: Boolean = false)(implicit docker: DockerClient): Uri = {
-    (baseUri / "containers" / id.toString) ? ("v" -> withVolumes)
+  def containerRemove(id: ContainerId, withVolumes: Boolean = false, force: Boolean = false)(implicit docker: DockerClient): Uri = {
+    (baseUri / "containers" / id.toString) ? ("v" -> withVolumes) & ("force" -> force)
   }
   
   def containerCopy(id: ContainerId)(implicit docker: DockerClient): Uri = {
     baseUri / "containers" / id.toString / "copy"
   }
   
-  def containerCommit(id: ContainerId, repo: String, tag: Option[String], runConfig: Option[String] = None, message: Option[String] = None, author: Option[String] = None)(implicit docker: DockerClient): Uri = {
+  def containerCommit(id: ContainerId, repo: String, tag: Option[String], runConfig: Option[String] = None, message: Option[String] = None, author: Option[String] = None, pause: Boolean = true)(implicit docker: DockerClient): Uri = {
     val u = (baseUri / "commit")
-    (u) ? ("container" -> id.toString) & ("repo" -> repo) & ("tag" -> tag) & ("m" -> message) & ("author" -> author) // & ("run" -> runConfig)
+    (u) ? ("container" -> id.toString) & ("repo" -> repo) & ("tag" -> tag) & ("m" -> message) & ("author" -> author) & ("pause" -> pause) // & ("run" -> runConfig)
   }
   
   /**
@@ -119,6 +130,7 @@ object Endpoints {
   }
   
   def imageInsert(name: String, imageTargetPath: String, source: java.net.URI)(implicit docker: DockerClient): Uri = {
+    // TODO: removed in API v1.12
     val u = (baseUri / "images" / name / "insert")
     (u) ? ("path" -> imageTargetPath) & ("url" -> source.toString)
   }
@@ -139,8 +151,8 @@ object Endpoints {
     (baseUri / "images" / name / "tag") ? ("repo" -> repo) & ("force" -> force)
   }
   
-  def imageRemove(name: String)(implicit docker: DockerClient): Uri = {
-    baseUri / "images" / name
+  def imageRemove(name: String, force: Boolean = false, noPrune: Boolean = false)(implicit docker: DockerClient): Uri = {
+    (baseUri / "images" / name) ? ("force" -> force) & ("noprune" -> noPrune)
   }
   
   def imageSearch(term: String)(implicit docker: DockerClient): Uri = {
