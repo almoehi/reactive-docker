@@ -11,7 +11,7 @@ class RepositoryTag private[RepositoryTag] (val repo: String, val tag: Option[St
 }
 
 object RepositoryTag {
-	  val pattern = """^(\w+):?(\w*)$""".r
+	  val pattern = """^([\w_\-0-9\.]+):?([\w_\-0-9\.]*)$""".r
 	  val patternNone = """^(<none>):?(<none>)*$""".r
 
 	  def apply(s: String): RepositoryTag = s match {
