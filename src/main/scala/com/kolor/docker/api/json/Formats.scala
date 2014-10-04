@@ -22,6 +22,7 @@ trait PartialFormat[T <: DockerEntity] extends Format[T] {
   def reads(json: JsValue) = partialReads.lift(json).getOrElse(JsError("unhandled json value"))
 }
 
+
 object Formats {
 
   implicit def String2ISODateTime(s: String) = new ISODateTimeString(s)
@@ -190,7 +191,8 @@ object Formats {
       (__ \ "GoVersio ").readNullable[String] and
       (__ \ "Arch").readNullable[String] and
       (__ \ "KernelVersion").readNullable[String] and
-      (__ \ "Os").readNullable[String])(DockerVersion.apply _),
+      (__ \ "Os").readNullable[String] and
+      (__ \ "ApiVersion").readNullable[String])(DockerVersion.apply _),
     Json.writes[DockerVersion])
 
   implicit val containerStateFmt = Format(
@@ -204,7 +206,7 @@ object Formats {
       (__ \ "FinishedAt").readNullable[String].map { opt =>
         opt.map(_.isoDateTime)
       } and
-      (__ \ "Ghost").read[Boolean])(ContainerState.apply _),
+      (__ \ "Ghost").read[Boolean].orElse(Reads.pure(false)))(ContainerState.apply _),
     (
       (__ \ "Running").write[Boolean] and
       (__ \ "Pid").write[Int] and
@@ -258,7 +260,9 @@ object Formats {
           case (regex(localPort, pType), cfg) => Map(s"$localPort/$pType" -> DockerPortBinding(localPort.toInt, (cfg \ ("HostIp")).asOpt[Int], Some(pType), (cfg \ ("HostPort")).asOpt[String]))
         })
       } and
-      (__ \ "Links").readNullable[Seq[ContainerId]])(ContainerHostConfiguration.apply _),
+      (__ \ "Links").readNullable[Seq[String]] and 
+      Reads.pure(Seq.empty[String]) and 
+      Reads.pure(Seq.empty[String]))(ContainerHostConfiguration.apply _),
     (
       (__ \ "Privileged").write[Boolean] and
       (__ \ "PublishAllPorts").write[Boolean] and
@@ -266,7 +270,9 @@ object Formats {
       (__ \ "ContainerIdFile").writeNullable[String] and
       (__ \ "LxcConf").writeNullable[Map[String, String]] and
       (__ \ "PortBindings").writeNullable[Map[String, DockerPortBinding]](hostConfigPortBindingWrite) and
-      (__ \ "Links").writeNullable[Seq[ContainerId]])(unlift(ContainerHostConfiguration.unapply)))
+      (__ \ "Links").writeNullable[Seq[String]] and
+      (__ \ "CapAdd").write[Seq[String]] and
+      (__ \ "CapDrop").write[Seq[String]])(unlift(ContainerHostConfiguration.unapply)))
 
   implicit val containerConfigFmt = Format(
     (
@@ -398,7 +404,8 @@ object Formats {
       (__ \ "author").readNullable[String] and
       (__ \ "config").read[ContainerConfiguration] and
       (__ \ "architecture").readNullable[String] and
-      (__ \ "Size").readNullable[Long])(DockerImageInfo.apply _),
+      (__ \ "Size").readNullable[Long] and
+      (__ \ "Comment").read[String].orElse(Reads.pure("")))(DockerImageInfo.apply _),
     Json.writes[DockerImageInfo])
 
   implicit val dockerInfoFmt: Format[DockerInfo] = Format(
@@ -421,6 +428,7 @@ object Formats {
       (JsPath \ "NEventsListener").read[Int] and
       (JsPath \ "NFd").read[Int] and
       (JsPath \ "NGoroutines").read[Int] and
-      (JsPath \ "SwapLimit").read[Int].map(int2Boolean(_)))(DockerInfo.apply _),
+      (JsPath \ "SwapLimit").read[Int].map(int2Boolean(_)) and
+      (JsPath \ "Sockets").read[Seq[String]].orElse(Reads.pure(Seq.empty[String])))(DockerInfo.apply _),
     Json.writes[DockerInfo])
 }
