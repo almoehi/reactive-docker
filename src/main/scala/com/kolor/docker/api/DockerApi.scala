@@ -106,6 +106,16 @@ val req = solr / "update" / "json" << a <<? params <:< headers
   }
   
   /**
+   * PING docker host
+   */
+  /*
+  def dockerPing()(implicit docker: DockerClient): Future[DockerVersion] = {
+	  val req = url(Endpoints.dockerPing.toString).GET
+	  // TODO: handle non JSON response, body should be "OK" with http 200
+  }
+  */
+  
+  /**
    * retrieve docker version
    */
   def dockerVersion()(implicit docker: DockerClient, fmt: Format[DockerVersion]): Future[DockerVersion] = {
@@ -121,8 +131,8 @@ val req = solr / "update" / "json" << a <<? params <:< headers
    * retrieve list of docker events since given timestamp
    * timestamp defaults to past 10 seconds
    */
-  def dockerEvents(since: Option[DateTime] = None)(implicit docker: DockerClient, fmt: Format[DockerStatusMessage], errorFmt: Format[DockerErrorInfo], progressFmt: Format[DockerProgressInfo]): Future[List[Either[DockerErrorInfo, DockerStatusMessage]]] = {
-    val req = url(Endpoints.dockerEvents(Some(since.map(_.getMillis()).getOrElse(DateTime.now().getMillis() - (100*10)))).toString).GET
+  def dockerEvents(since: Option[DateTime] = None, until: Option[DateTime] = None)(implicit docker: DockerClient, fmt: Format[DockerStatusMessage], errorFmt: Format[DockerErrorInfo], progressFmt: Format[DockerProgressInfo]): Future[List[Either[DockerErrorInfo, DockerStatusMessage]]] = {
+    val req = url(Endpoints.dockerEvents(Some(since.map(_.getMillis() / 1000).getOrElse(DateTime.now().getMillis()/1000 - (100*10))), until.map(_.getMillis() / 1000)).toString).GET
     recoverDockerAwareRequest(docker.dockerRequestIteratee(req)(_ => DockerIteratee.statusStream)).flatMap(_.run)
   }
   
@@ -148,9 +158,9 @@ val req = solr / "update" / "json" << a <<? params <:< headers
    * build image from dockerfile
    * allows realtime processing of the response by given iteratee
    */
-  def dockerBuildIteratee[T](tarFile: java.io.File, tag: String, verbose: Boolean = false, nocache: Boolean = false)(consumer: Iteratee[Array[Byte], T])(implicit docker: DockerClient, auth: DockerAuth = DockerAnonymousAuth): Future[Iteratee[Array[Byte], T]] = {
+  def dockerBuildIteratee[T](tarFile: java.io.File, tag: String, verbose: Boolean = false, nocache: Boolean = false, forceRm: Boolean = false)(consumer: Iteratee[Array[Byte], T])(implicit docker: DockerClient, auth: DockerAuth = DockerAnonymousAuth): Future[Iteratee[Array[Byte], T]] = {
     val req = auth match {
-    	case DockerAnonymousAuth => url(Endpoints.dockerBuild(tag, verbose, nocache).toString).POST
+    	case DockerAnonymousAuth => url(Endpoints.dockerBuild(tag, verbose, nocache, forceRm).toString).POST
     	case data => url(Endpoints.dockerBuild(tag, verbose, nocache).toString).POST <:< Map("X-Registry-Config" -> data.asBase64Encoded)
     }
     
@@ -158,11 +168,11 @@ val req = solr / "update" / "json" << a <<? params <:< headers
   }
   
   /**
-   * build image ffrom dockerfile
+   * build image from dockerfile
    * collects and aggregates all docker messages into a list on completion
    */
-  def dockerBuild(tarFile: java.io.File, tag: String, verbose: Boolean = false, nocache: Boolean = false)(implicit docker: DockerClient, auth: DockerAuth = DockerAnonymousAuth): Future[List[Either[DockerErrorInfo, DockerStatusMessage]]] = {
-    dockerBuildIteratee(tarFile, tag, verbose, nocache)(DockerIteratee.statusStream).flatMap(_.run)
+  def dockerBuild(tarFile: java.io.File, tag: String, verbose: Boolean = false, nocache: Boolean = false, forceRm: Boolean = false)(implicit docker: DockerClient, auth: DockerAuth = DockerAnonymousAuth): Future[List[Either[DockerErrorInfo, DockerStatusMessage]]] = {
+    dockerBuildIteratee(tarFile, tag, verbose, nocache, forceRm)(DockerIteratee.statusStream).flatMap(_.run)
   }
 }
 
@@ -308,6 +318,7 @@ trait DockerContainerApi extends DockerApiHelper {
     docker.dockerRequest(req).map { 
       case Right(resp) if (resp.getStatusCode() == 200) => true
       case Right(resp) if (resp.getStatusCode() == 204) => true
+      case Right(resp) if (resp.getStatusCode() == 304) => true		// new with 1.13 => container status was not modified
       case Right(resp) if (resp.getStatusCode() == 404) => throw new NoSuchContainerException(id, docker)
       case Right(resp) => throw new DockerRequestException(s"unable to start container $id (StatusCode: ${resp.getStatusCode()}): ${resp.getStatusText()}", docker, None, Some(req))
       case Left(t) => throw new DockerRequestException(s"unable to start container $id", docker, Some(t), Some(req))
@@ -323,6 +334,7 @@ trait DockerContainerApi extends DockerApiHelper {
     docker.dockerRequest(req).map { 
       case Right(resp) if (resp.getStatusCode() == 200) => true
       case Right(resp) if (resp.getStatusCode() == 204) => true
+      case Right(resp) if (resp.getStatusCode() == 304) => true		// new with 1.13 => container status was not modified
       case Right(resp) if (resp.getStatusCode() == 404) => throw new NoSuchContainerException(id, docker)
       case Right(resp) => throw new DockerRequestException(s"unable to stop container $id (Code ${resp.getStatusCode()}): ${resp.getResponseBody()}", docker, None, Some(req))
       case Left(t) => throw new DockerRequestException(s"unable to stop container $id", docker, Some(t), Some(req))
@@ -361,6 +373,9 @@ trait DockerContainerApi extends DockerApiHelper {
    * attach to a containers stdout, stderr, logs and stdin channel and stream their contents
    */
   def attachStream[T](id: ContainerId, stdout: Boolean = true, stderr: Boolean = false, logs: Boolean = false, stdin: Option[Enumerator[Array[Byte]]] = None)(consumer: Iteratee[Array[Byte], T])(implicit docker: DockerClient): Future[Iteratee[Array[Byte], T]] = {
+    
+     // TODO: use containerLogs if logs == true
+    
     val req = stdin match {
       case Some(en) =>
         // transform stdin enumerator into  an inputstream and attach to request
@@ -394,6 +409,7 @@ trait DockerContainerApi extends DockerApiHelper {
    * returns a future which will be completed once the enumerator is done / detached
    */
   def attachStdin(id: ContainerId, en: Enumerator[Array[Byte]])(implicit docker: DockerClient): Future[Unit] = {
+    // TODO: use containerLogs
     val os = new PipedOutputStream()
     val is = new PipedInputStream(os)
 
@@ -422,6 +438,8 @@ trait DockerContainerApi extends DockerApiHelper {
    * returns data immediatelly - no streaming
    */
   def attach[T](id: ContainerId, stdout: Boolean = true, stderr: Boolean = false, logs: Boolean = false)(consumer: Iteratee[Array[Byte], T] = Iteratee.ignore)(implicit docker: DockerClient): Future[Iteratee[Array[Byte], T]] = {
+    // TODO: use containerLogs if logs == true
+    
     val req = url(Endpoints.containerAttach(id, false, false, stdout, stderr, logs).toString).POST
     
     docker.dockerRequestIteratee(req)(_ => consumer).recoverWith{
@@ -450,8 +468,8 @@ trait DockerContainerApi extends DockerApiHelper {
   /**
    * remove container
    */
-  def containerRemove(id: ContainerId, withVolumes: Boolean = false)(implicit docker: DockerClient): Future[Boolean] = {
-    val req = url(Endpoints.containerRemove(id, withVolumes).toString).DELETE 
+  def containerRemove(id: ContainerId, withVolumes: Boolean = false, force: Boolean = false)(implicit docker: DockerClient): Future[Boolean] = {
+    val req = url(Endpoints.containerRemove(id, withVolumes, force).toString).DELETE 
     docker.dockerRequest(req).map { 
       case Right(resp) if (resp.getStatusCode() == 204) => true
       case Right(resp) if (resp.getStatusCode() == 400) => throw new DockerBadParameterException(s"removing container $id failed", docker, req)
@@ -496,9 +514,9 @@ trait DockerContainerApi extends DockerApiHelper {
   /**
    * commit a container to repoTag without commit message
    */
-  def containerCommit(id: ContainerId, repoTag: RepositoryTag, runConfig: Option[ContainerConfiguration] = None)(implicit docker: DockerClient, fmt: Format[ContainerConfiguration]): Future[ContainerId] = {
+  def containerCommit(id: ContainerId, repoTag: RepositoryTag, runConfig: Option[ContainerConfiguration] = None, pause: Boolean = true)(implicit docker: DockerClient, fmt: Format[ContainerConfiguration]): Future[ContainerId] = {
     val cfg = runConfig.map(j => Json.prettyPrint(Json.toJson(j)))
-    val req = url(Endpoints.containerCommit(id, repoTag.repo, repoTag.tag, cfg).toString).POST << cfg.getOrElse("{}")
+    val req = url(Endpoints.containerCommit(id, repoTag.repo, repoTag.tag, cfg, None, None, pause).toString).POST << cfg.getOrElse("{}")
     docker.dockerRequest(req).map { 
       case Right(resp) if resp.getStatusCode() == 404 => throw new NoSuchContainerException(id, docker)
       case Right(resp) if resp.getStatusCode() == 500 => throw new DockerInternalServerErrorException(docker)
@@ -513,11 +531,11 @@ trait DockerContainerApi extends DockerApiHelper {
   /**
    * commit a container to repoTag with comment and author
    */
-  def containerCommitWithMessage(id: ContainerId, repoTag: RepositoryTag, withMessageAndAuthor: (String, Option[String]), runConfig: Option[ContainerConfiguration] = None)(implicit docker: DockerClient, fmt: Format[ContainerConfiguration]): Future[ContainerId] = {
+  def containerCommitWithMessage(id: ContainerId, repoTag: RepositoryTag, withMessageAndAuthor: (String, Option[String]), runConfig: Option[ContainerConfiguration] = None, pause: Boolean = true)(implicit docker: DockerClient, fmt: Format[ContainerConfiguration]): Future[ContainerId] = {
     val commitMsg = withMessageAndAuthor
     val cfg = runConfig.map(j => Json.prettyPrint(Json.toJson(j)))
 
-    val req = url(Endpoints.containerCommit(id, repoTag.repo, repoTag.tag, cfg, Some(commitMsg._1), commitMsg._2).toString).POST << cfg.getOrElse("{}")
+    val req = url(Endpoints.containerCommit(id, repoTag.repo, repoTag.tag, cfg, Some(commitMsg._1), commitMsg._2, pause).toString).POST << cfg.getOrElse("{}")
     docker.dockerRequest(req).map { 
       case Right(resp) if resp.getStatusCode() == 404 => throw new NoSuchContainerException(id, docker)
       case Right(resp) if resp.getStatusCode() == 500 => throw new DockerInternalServerErrorException(docker)
@@ -575,6 +593,7 @@ trait DockerImagesApi extends DockerApiHelper {
   /**
    * insert a resource into image from remote location
    * allows realtime processing of reponse by given consumer iteratee
+   * TODO: removed with API 1.12
    */
   def imageInsertResourceIteratee[T](image: String, imageTargetPath: String, sourceFileUrl: java.net.URI)(consumer: Iteratee[Array[Byte], T])(implicit docker: DockerClient): Future[Iteratee[Array[Byte], T]] = {
     val req = url(Endpoints.imageInsert(image, imageTargetPath, sourceFileUrl).toString).POST
@@ -585,6 +604,7 @@ trait DockerImagesApi extends DockerApiHelper {
   /**
    * insert a resource into image from remote location
    * collects and returns list of messages/errors on completion
+   * TODO: removed with API 1.12
    */
   def imageInsertResource(image: String, imageTargetPath: String, sourceFileUrl: java.net.URI)(implicit docker: DockerClient): Future[List[Either[DockerErrorInfo, DockerStatusMessage]]] = {
 	  imageInsertResourceIteratee(image, imageTargetPath, sourceFileUrl)(DockerIteratee.statusStream).flatMap(_.run)
@@ -657,8 +677,8 @@ trait DockerImagesApi extends DockerApiHelper {
   /**
    * remove image
    */
-  def imageRemove(image: String)(implicit docker: DockerClient): Future[Seq[(String,String)]] = {
-    val req = url(Endpoints.imageRemove(image).toString).DELETE
+  def imageRemove(image: String, force: Boolean = false, noPrune: Boolean = false)(implicit docker: DockerClient): Future[Seq[(String,String)]] = {
+    val req = url(Endpoints.imageRemove(image, force, noPrune).toString).DELETE
     
     docker.dockerJsonRequest[Seq[JsObject]](req).map { 
       case Right(output) => output.map{obj => 
