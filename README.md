@@ -7,11 +7,10 @@ A fully reactive client for the docker remote API.
 * fully async and non-blocking design
 * full typesafety
 * async streaming capabilities using enumerators (e.g. attaching to docker events stream)
-* supports latest docker remote API v1.10
+* supports latest docker remote API v1.14
 
 pending features:
 
-* docker build (implemented but not tested yet)
 * simplify API usage by providing additional convenience methods e.g. ``docker.run`` or ``docker.pull``
 * publish sbt artifacts
 
@@ -47,7 +46,8 @@ create a new container from busybox image and start it:
 
 ```
 import com.kolor.docker.api._
-import com.kolor.docker.api.json.Formats._
+//import com.kolor.docker.api.json.Formats._		// use this for API version < v1.12
+import com.kolor.docker.api.json.FormatsV112._		// use this for API versions v1.12+
 import scala.concurrent.duration.Duration
 import scala.concurrent.Await
 import play.api.libs.iteratee._
