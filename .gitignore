@@ -3,6 +3,7 @@
 .cache
 .classpath
 .project
+WorksheetSpec.scala
 
 # sbt specific
 dist/*
