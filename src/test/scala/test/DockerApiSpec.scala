@@ -15,7 +15,6 @@ import org.specs2.execute._
 import org.specs2.specification._
 import org.specs2.matcher.FutureMatchers.await
 import scala.concurrent.ExecutionContext.Implicits.global
-import com.kolor.docker.api.json.Formats._
 import play.api.libs.iteratee._
 import org.slf4j.LoggerFactory
 import com.netaporter.uri.Uri
@@ -23,6 +22,8 @@ import com.netaporter.uri.Uri
 
 class DockerApiSpec extends Specification {
 
+  import com.kolor.docker.api.json.FormatsV112._
+  
   implicit def defaultAwaitTimeout: Duration = Duration.create(40, SECONDS)
   
   implicit val docker = Docker("localhost", 2375)
@@ -141,7 +142,7 @@ class DockerApiSpec extends Specification {
         	case Right(msg) => msg.status must not be empty
         	case Left(err) => err.message must not be empty
     	}
-    }
+    } must throwA[RuntimeException]  // removed in API v1.12+
     
     "inspect a docker image" in image {env:Image => 
       val info = await(docker.imageInspect(env.imageName))
@@ -239,7 +240,7 @@ class DockerApiSpec extends Specification {
     }
     
     "list processes of a container" in runningContainer{env:Container => 
-      val procs = await(docker.containerProcesses(env.containerId, Some("-a")))
+      val procs = await(docker.containerProcesses(env.containerId, Some("-aux")))
       procs._2.size must be_>(0)
     }
     
@@ -296,7 +297,7 @@ class DockerApiSpec extends Specification {
       startRes must be_==(true)
       startInfo.state.running must be_==(true)
       
-      val stopRes = await(docker.containerStop(env.containerId))
+      val stopRes = await(docker.containerStop(env.containerId, defaultAwaitTimeout.toSeconds.intValue() - 10))
       val stopInfo = await(docker.containerInspect(env.containerId))
 
       stopRes must be_==(true)
@@ -308,7 +309,7 @@ class DockerApiSpec extends Specification {
 
       startInfo.state.running must be_==(true)
       
-      val res = await(docker.containerRestart(env.containerId))
+      val res = await(docker.containerRestart(env.containerId, defaultAwaitTimeout.toSeconds.intValue() - 10))
       val info = await(docker.containerInspect(env.containerId))
       res must be_==(true)
       info.state.running must be_==(true)
@@ -343,7 +344,7 @@ class DockerApiSpec extends Specification {
     }
     
     "remove a container with its volumes" in complexContainer {env:Container =>
-      val stop = await(docker.containerStop(env.containerId))
+      val stop = await(docker.containerStop(env.containerId, 15))
       val res = await(docker.containerRemove(env.containerId, true))
       res must be_==(true)
     }

@@ -17,12 +17,13 @@ import org.specs2.matcher.FutureMatchers.await
 import scala.concurrent.ExecutionContext.Implicits.global
 import org.junit.runner.RunWith
 import org.specs2.runner.JUnitRunner
-import com.kolor.docker.api.json.FormatsV112._
 import play.api.libs.iteratee._
 import org.slf4j.LoggerFactory
 
 @RunWith(classOf[JUnitRunner])
 class DockerQuickSpec extends Specification {
+  
+  import com.kolor.docker.api.json.FormatsV112._
 
   implicit def defaultAwaitTimeout: Duration = Duration(20, SECONDS)
 
@@ -69,16 +70,23 @@ class DockerQuickSpec extends Specification {
     
     
     "create / pull a new image from busybox base image" in new DockerContext {
+      
       try {
-    	val res = await(docker.imageCreate(RepositoryTag.create("busybox", Some("pullTest"))))
-    	
-    	res must not be empty
-    	res.size must be_>(0)
-
-    	res(0) must beLike {
-        	case Right(msg) => msg.status must not be empty
-        	case Left(err) => err.message must not be empty
-    	}
+        await(docker.imageRemove("busybox"))
+      } catch {
+        case e:NoSuchImageException => // ignore
+      }
+      
+      try {
+      	val res = await(docker.imageCreate(RepositoryTag.create("busybox", Some("pullTest"))))
+      	
+      	res must not be empty
+      	res.size must be_>(0)
+  
+      	res(0) must beLike {
+          	case Right(msg) => msg.status must not be empty
+          	case Left(err) => err.message must not be empty
+      	}
 
       } finally {
         docker.imageRemove("busybox")
