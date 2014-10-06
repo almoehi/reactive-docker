@@ -140,7 +140,7 @@ package object test {
 	 */
 	def runningContainer:DockerEnv[Container] = new DockerEnv[Container] {
 	  val env = {
-	    val cmd = Seq("/bin/sh", "-c", "while true; do echo hello world; sleep 1; done")
+	    val cmd = Seq("/bin/sh", "-c", "while true; do echo hello world && echo hello stderr >&2; sleep 1; done")
 
 	    val containerName = "reactive-docker"
 	    val imageTag = RepositoryTag.create("busybox", Some("latest"))
@@ -187,7 +187,7 @@ package object test {
 	 */
 	def complexContainer:DockerEnv[Container] = new DockerEnv[Container] {
 	  val env = {
-	    val cmd = Seq("/bin/sh", "-c", "while true; do echo hello world; sleep 1; done")
+	    val cmd = Seq("/bin/sh", "-c", "while true; do echo hello world && echo hello stderr >&2; sleep 1; done")
 	    val containerName = "reactive-docker"
 	    val imageTag = RepositoryTag.create("busybox", Some("latest"))
 	    val cfg = ContainerConfig("busybox", cmd)
