@@ -12,6 +12,8 @@ addCompilerPlugin("org.scalamacros" % "paradise" % "2.0.1" cross CrossVersion.fu
 
 publishMavenStyle := true
 
+// crossScalaVersions := Seq("2.10.0", "2.11.0")
+
 publishTo <<= version { (v: String) =>
   val nexus = "https://oss.sonatype.org/"
   if (v.trim.endsWith("SNAPSHOT")) 
@@ -65,7 +67,8 @@ libraryDependencies ++= Seq(
             "net.databinder.dispatch" %% "dispatch-core" % "0.11.2",
             "org.specs2" %% "specs2" % "2.4.2" % "test",
             "ch.qos.logback" % "logback-core" % logbackVer,
-            "ch.qos.logback" % "logback-classic" % logbackVer
+            "ch.qos.logback" % "logback-classic" % logbackVer,
+            "org.apache.commons" % "commons-compress" % "1.8.1"
   )
 
 // see https://github.com/typesafehub/scalalogging/issues/23
