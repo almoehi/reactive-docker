@@ -91,8 +91,11 @@ object Endpoints {
     (baseUri / "containers" / id.toString / "attach") ? ("stream" -> stream) & ("stdin" -> stdin) & ("stdout" -> stdout) & ("stderr" -> stderr) & ("logs" -> logs)
   }
   
-  def containerLogs(id: ContainerId, stream: Boolean, stdout: Boolean = true, stderr: Boolean = false, withTimestamps: Boolean = false)(implicit docker: DockerClient): Uri = {
-    (baseUri / "containers" / id.toString / "logs") ? ("follow" -> stream) & ("stdout" -> stdout) & ("stderr" -> stderr) & ("timestamps" -> withTimestamps)
+  def containerLogs(id: ContainerId, stream: Boolean, stdout: Boolean = true, stderr: Boolean = false, withTimestamps: Boolean = false, tail: Option[Int] = None)(implicit docker: DockerClient): Uri = {
+    tail match {
+      case Some(n) => (baseUri / "containers" / id.toString / "logs") ? ("follow" -> stream) & ("stdout" -> stdout) & ("stderr" -> stderr) & ("timestamps" -> withTimestamps) & ("tail" -> n)
+      case _ => (baseUri / "containers" / id.toString / "logs") ? ("follow" -> stream) & ("stdout" -> stdout) & ("stderr" -> stderr) & ("timestamps" -> withTimestamps)
+    }
   }
   
   def containerWait(id: ContainerId)(implicit docker: DockerClient): Uri = {
