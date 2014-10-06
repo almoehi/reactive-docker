@@ -25,7 +25,7 @@ sealed trait DockerClient extends DockerApi {
   private val log = LoggerFactory.getLogger(this.getClass());
   
   implicit def docker:DockerClient = this
-  
+    
   def dockerApiVersion: String
   def dockerHost: String
   def dockerPort: Int
@@ -56,13 +56,14 @@ sealed trait DockerClient extends DockerApi {
     		  errors => Left(new DockerResponseParseError(s"Json parse errors: ${errors.mkString("|")}", docker, resp.getResponseBody())),
     		  data => Right(data) 
         )
-      case Right(resp) if (resp.getStatusCode() == 409) => 
-        throw new DockerConflictException(s"docker conflict (${req.url}) : ${resp.getResponseBody()}", docker)
+      //case Right(resp) if (resp.getStatusCode() == 409) => 
+      //  throw new DockerConflictException(s"docker conflict (${req.url}) : ${resp.getResponseBody()}", docker)
       //case Right(resp) if (resp.getStatusCode() == 404) => throw new NoSuchContainerException(ContainerId.emptyId, docker) {
       //  override def message = resp.getResponseBody()
       //}
-      case Right(resp) if (resp.getStatusCode() == 500) => throw new DockerInternalServerErrorException(docker, s"docker internal server error for ${req.url}: ${resp.getResponseBody()}")
-      case Right(resp) => throw new DockerRequestException(s"docker request error for ${req.url} (Code: ${resp.getStatusCode()}) : ${resp.getResponseBody()}", docker, None, Some(req)) 
+      //case Right(resp) if (resp.getStatusCode() == 500) => throw new DockerInternalServerErrorException(docker, s"docker internal server error for ${req.url}: ${resp.getResponseBody()}")
+      //case Right(resp) => throw new DockerRequestException(s"docker request error for ${req.url} (Code: ${resp.getStatusCode()}) : ${resp.getResponseBody()}", docker, None, Some(req)) 
+      case Right(resp) => Left(dispatch.StatusCode(resp.getStatusCode()))
       case Left(t) => Left(t)
     }.recover {
       case t: Throwable => 
