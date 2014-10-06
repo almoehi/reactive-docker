@@ -3,7 +3,7 @@ package com.kolor.docker.api
 import play.api.libs.iteratee._
 import scala.concurrent.ExecutionContext.Implicits.global
 import play.api.libs.json._
-import com.kolor.docker.api.types._
+import com.kolor.docker.api.entities._
 import com.kolor.docker.api.json.Formats._
 import org.slf4j.LoggerFactory
 import play.api.libs.iteratee.Iteratee

@@ -2,7 +2,6 @@ package com.kolor.docker.api
 
 import dispatch._
 import Defaults._
-import com.kolor.docker.api.types._
 import play.api.libs.json._
 import org.joda.time.DateTime
 import play.api.libs.iteratee._
@@ -10,25 +9,11 @@ import org.slf4j.LoggerFactory
 import java.io._
 import scala.concurrent.Future
 import com.ning.http.client.generators.InputStreamBodyGenerator
-import com.kolor.docker.api.types.DockerVersion
 import play.api.libs.json.JsArray
-import com.kolor.docker.api.types.DockerStatusMessage
 import scala.Some
 import dispatch.StatusCode
-import com.kolor.docker.api.types.ContainerInfo
-import com.kolor.docker.api.types.ContainerChangelogRecord
-import com.kolor.docker.api.types.Container
-import com.kolor.docker.api.types.DockerImageInfo
-import com.kolor.docker.api.types.ContainerHostConfiguration
-import com.kolor.docker.api.types.DockerImageSearchResult
-import com.kolor.docker.api.types.DockerInfo
-import com.kolor.docker.api.types.DockerImage
-import com.kolor.docker.api.types.DockerErrorInfo
-import com.kolor.docker.api.types.DockerProgressInfo
-import com.kolor.docker.api.types.DockerAuthCredentials
-import com.kolor.docker.api.types.DockerImageHistoryInfo
 import play.api.libs.json.JsObject
-import com.kolor.docker.api.types.ContainerConfiguration
+import com.kolor.docker.api.entities._
 
 /**
  * helper trait

@@ -3,8 +3,7 @@ package com.kolor.docker.api
 import com.netaporter.uri.dsl._
 import com.netaporter.uri.Uri.parse
 import com.netaporter.uri.Uri
-import com.kolor.docker.api.types._
-import com.kolor.docker.api.types.DockerAuth
+import com.kolor.docker.api.entities._
 
 object Endpoints {
 

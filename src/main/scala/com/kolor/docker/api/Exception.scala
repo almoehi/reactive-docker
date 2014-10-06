@@ -1,6 +1,6 @@
 package com.kolor.docker.api
 
-import com.kolor.docker.api.types.ContainerId
+import com.kolor.docker.api.entities.ContainerId
 
 
 case class DockerResponseCode(code: Int, message: String) extends Exception(s"Docker error (Code $code): $message")

@@ -4,7 +4,7 @@ import dispatch._
 import Defaults._
 import play.api.libs.iteratee.Enumerator
 import play.api.libs.json._
-import com.kolor.docker.api.types.ContainerId
+import com.kolor.docker.api.entities.ContainerId
 import org.slf4j.LoggerFactory
 import scala.concurrent.Promise
 import play.api.libs.iteratee._
