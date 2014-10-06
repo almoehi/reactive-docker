@@ -40,7 +40,7 @@ class DockerAttachSpec extends Specification {
   sequential
 
   "DockerApi" should {
-
+    
     "be able to attach to stdout + stdin stream and send commands to stdin" in ubuntu {env:Container =>
 
       await(docker.containerStart(env.containerId))
@@ -110,7 +110,8 @@ class DockerAttachSpec extends Specification {
       //log.info(s"response: $res")
       res must not be empty
     }
-
+    
+    
     "be able to attach to logs and retrieve data" in runningContainer {env:Container =>
       val (it, en) = Concurrent.joined[Array[Byte]]
       val maybeRes = (en &> DockerEnumeratee.rawStream |>>> Iteratee.head)
@@ -121,6 +122,36 @@ class DockerAttachSpec extends Specification {
       //log.info(s"response: $res")
       // TODO: returns no output with new container, how to test?
       res must beEmpty  // attaching to stdout returns nothing so far
+    }
+    
+    "be able to attach to stout+stderr logs stream via /logs" in runningContainer {env:Container =>
+      val (it, en) = Concurrent.joined[Array[Byte]]
+      val maybeRes = (en &> DockerEnumeratee.rawStream |>>> Iteratee.head)
+
+      await(docker.attachLog(env.containerId, true, true, true)(it).flatMap(_.run))
+
+      val res = await(maybeRes)
+      //log.info(s"logs response: $res")
+      // TODO: returns no output with new container, how to test?
+      //res.text must not beEmpty  // attaching to stdout returns nothing so far
+      res must beSome{raw:DockerRawStreamChunk => 
+        raw.text must not beEmpty  
+      }
+    }
+    
+    "be able to fetch last 10 lines of stdout+stderr logs via /logs" in runningContainer {env:Container =>
+      val (it, en) = Concurrent.joined[Array[Byte]]
+      val maybeRes = (en &> DockerEnumeratee.rawStream |>>> Iteratee.head)
+
+      await(docker.fetchLog(env.containerId, true, true, true, Some(10))(it).flatMap(_.run))
+
+      val res = await(maybeRes)
+      //log.info(s"logs response: $res")
+      // TODO: returns no output with new container, how to test?
+      //res must beEmpty  // attaching to stdout returns nothing so far
+      res must beSome{raw:DockerRawStreamChunk => 
+        raw.text must not beEmpty  
+      }
     }
 
   }
