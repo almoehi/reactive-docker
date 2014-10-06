@@ -14,6 +14,10 @@ import scala.Some
 import dispatch.StatusCode
 import play.api.libs.json.JsObject
 import com.kolor.docker.api.entities._
+import org.apache.commons.compress.archivers.tar.TarArchiveOutputStream
+import java.util.zip.GZIPOutputStream
+import org.apache.commons.compress.archivers.tar.TarArchiveEntry
+import org.apache.commons.compress.utils.IOUtils
 
 /**
  * helper trait
@@ -147,12 +151,18 @@ val req = solr / "update" / "json" << a <<? params <:< headers
    * allows realtime processing of the response by given iteratee
    */
   def dockerBuildIteratee[T](tarFile: java.io.File, tag: String, verbose: Boolean = false, nocache: Boolean = false, forceRm: Boolean = false)(consumer: Iteratee[Array[Byte], T])(implicit docker: DockerClient, auth: DockerAuth = DockerAnonymousAuth): Future[Iteratee[Array[Byte], T]] = {
-    val req = auth match {
-    	case DockerAnonymousAuth => url(Endpoints.dockerBuild(tag, verbose, nocache, forceRm).toString).POST
-    	case data => url(Endpoints.dockerBuild(tag, verbose, nocache).toString).POST <:< Map("X-Registry-Config" -> data.asBase64Encoded)
+    
+    tarFile.exists() match {
+      case false => throw new RuntimeException(s"File $tarFile does not exist")
+      case _ =>
+        val req = auth match {
+        	case DockerAnonymousAuth => url(Endpoints.dockerBuild(tag, verbose, nocache, forceRm).toString).POST <<< tarFile <:< Map("Content-Type" -> "application/x-tar")
+        	case data => url(Endpoints.dockerBuild(tag, verbose, nocache).toString).POST <:< Map("X-Registry-Config" -> data.asBase64Encoded) <<< tarFile <:< Map("Content-Type" -> "application/x-tar")
+        }
+        
+        recoverDockerAwareRequest(docker.dockerRequestIteratee(req)(_ => consumer))
     }
     
-    recoverDockerAwareRequest(docker.dockerRequestIteratee(req)(_ => consumer))
   }
   
   /**
@@ -162,6 +172,71 @@ val req = solr / "update" / "json" << a <<? params <:< headers
   def dockerBuild(tarFile: java.io.File, tag: String, verbose: Boolean = false, nocache: Boolean = false, forceRm: Boolean = false)(implicit docker: DockerClient, auth: DockerAuth = DockerAnonymousAuth): Future[List[Either[DockerErrorInfo, DockerStatusMessage]]] = {
     dockerBuildIteratee(tarFile, tag, verbose, nocache, forceRm)(DockerIteratee.statusStream).flatMap(_.run)
   }
+  
+  /*
+   * convenience method to build from dockerfile provided as string sequence
+   * and retrieve output as list
+   */
+  def dockerBuildFrom(tag: String, verbose: Boolean = false, nocache: Boolean = false, forceRm: Boolean = false)(withDockerfile: () => Seq[String])(implicit docker: DockerClient, auth: DockerAuth = DockerAnonymousAuth): Future[List[Either[DockerErrorInfo, DockerStatusMessage]]] = {
+    dockerBuildIterateeFrom(tag, verbose, nocache, forceRm)(DockerIteratee.statusStream)(withDockerfile).flatMap(_.run)
+  }
+  
+  /**
+   * convenience method to build from dockerfile provided as string sequence
+   */
+  def dockerBuildIterateeFrom[T](tag: String, verbose: Boolean = false, nocache: Boolean = false, forceRm: Boolean = false)(consumer: Iteratee[Array[Byte], T])(withDockerfile: () => Seq[String])(implicit docker: DockerClient, auth: DockerAuth = DockerAnonymousAuth): Future[Iteratee[Array[Byte], T]] = {
+    val dockerFileString = withDockerfile().mkString("\n")
+    val temp = File.createTempFile("reactive-docker", "dockerfile")
+    val tempDockerfile  = File.createTempFile("reactive-docker", "dockerfile")
+    temp.deleteOnExit()
+    tempDockerfile.deleteOnExit()
+    
+    val os = new BufferedOutputStream(new FileOutputStream(tempDockerfile))
+    try {
+      os.write(dockerFileString.getBytes)
+    } catch {
+      case t:Throwable => // ignore
+    } finally {
+      os.close
+    }
+   
+    
+    var out: TarArchiveOutputStream = null
+    try {
+           out = new TarArchiveOutputStream(
+                new GZIPOutputStream(
+                     new BufferedOutputStream(new FileOutputStream(temp))))
+           val entry = new TarArchiveEntry(tempDockerfile, "Dockerfile")
+           out.putArchiveEntry(entry)
+           IOUtils.copy(new FileInputStream(tempDockerfile), out)
+           out.closeArchiveEntry
+      } finally {
+           if (out != null) {
+              out.finish
+              out.close
+           }
+      }
+
+      log.info(s"DockerTarFile: ${temp.getAbsolutePath()} size=${temp.length()}")
+      
+      val req = auth match {
+        	case DockerAnonymousAuth => url(Endpoints.dockerBuild(tag, verbose, nocache, forceRm).toString).POST <<< temp <:< Map("Content-Type" -> "application/x-tar")
+        	case data => url(Endpoints.dockerBuild(tag, verbose, nocache).toString).POST <:< Map("X-Registry-Config" -> data.asBase64Encoded) <<< temp <:< Map("Content-Type" -> "application/x-tar")
+      }
+        
+      recoverDockerAwareRequest(docker.dockerRequestIteratee(req){_ => 
+        try {
+          tempDockerfile.delete()
+          temp.delete()
+        } catch {
+          case t: Throwable => // ignore
+        }
+        
+        consumer
+      })
+      
+  }
+  
 }
 
 
@@ -358,42 +433,100 @@ trait DockerContainerApi extends DockerApiHelper {
   }
 
   /**
+   * attach (stream) to container`s stdin/stdout logs
+   */
+  def attachLog[T](id: ContainerId, stdout: Boolean = true, stderr: Boolean = false, withTimestamps: Boolean = false, tail: Option[Int] = None)(consumer: Iteratee[Array[Byte], T])(implicit docker: DockerClient): Future[Iteratee[Array[Byte], T]] = {
+    val req = url(Endpoints.containerLogs(id, true, stdout, stderr, withTimestamps, tail).toString).GET
+    docker.dockerRequestIteratee(req)(_ => consumer).recoverWith{
+      case DockerResponseCode(400, err) => throw new DockerBadParameterException(s"unable to attach to container logs stream of $id", docker, req)
+      case DockerResponseCode(404, err) => Future.failed(new NoSuchContainerException(id, docker))
+      case DockerResponseCode(500, err) => Future.failed(new DockerInternalServerErrorException(docker, err))
+      case t @ DockerResponseCode(code, err) => Future.failed(new DockerRequestException(s"Docker streaming attach to container logs of $id failed (Code: $code): err", docker, Some(t), None))
+    }
+  }
+  
+  
+  /**
+   * fetch container stdin/stdout logs
+   */
+  def fetchLog[T](id: ContainerId, stdout: Boolean = true, stderr: Boolean = false, withTimestamps: Boolean = false, tail: Option[Int] = None)(consumer: Iteratee[Array[Byte], T] = Iteratee.ignore)(implicit docker: DockerClient): Future[Iteratee[Array[Byte], T]] = {
+    val req = url(Endpoints.containerLogs(id, false, stdout, stderr, withTimestamps, tail).toString).GET
+    docker.dockerRequestIteratee(req)(_ => consumer).recoverWith{
+      case DockerResponseCode(400, err) => throw new DockerBadParameterException(s"unable to fetch logs of container $id", docker, req)
+      case DockerResponseCode(404, err) => Future.failed(new NoSuchContainerException(id, docker))
+      case DockerResponseCode(500, err) => Future.failed(new DockerInternalServerErrorException(docker, err))
+      case t @ DockerResponseCode(code, err) => Future.failed(new DockerRequestException(s"Docker fetch logs of container $id failed (Code: $code): err", docker, Some(t), None))
+    }
+  }
+  
+  /**
+   * convenience method to attach to stdout stream
+   */
+  def attachStdout[T](id: ContainerId, withTimestamps: Boolean = false, tail: Option[Int] = None)(consumer: Iteratee[Array[Byte], T])(implicit docker: DockerClient): Future[Iteratee[Array[Byte], T]] = {
+    attachLog[T](id, true, false, withTimestamps, tail)(consumer)
+  }
+  
+  /**
+   * convenience method to fetch stdout
+   */
+  def fetchStdout[T](id: ContainerId, withTimestamps: Boolean = false, tail: Option[Int] = None)(consumer: Iteratee[Array[Byte], T])(implicit docker: DockerClient): Future[Iteratee[Array[Byte], T]] = {
+    fetchLog[T](id, true, false, withTimestamps, tail)(consumer)
+  }
+  
+  /**
+   * convenience method to attach to stderr stream
+   */
+  def attachStderr[T](id: ContainerId, withTimestamps: Boolean = false, tail: Option[Int] = None)(consumer: Iteratee[Array[Byte], T])(implicit docker: DockerClient): Future[Iteratee[Array[Byte], T]] = {
+    attachLog[T](id, false, true, withTimestamps, tail)(consumer)
+  }
+  
+  /**
+   * convenience method to fetch stderr
+   */
+  def fetchStderr[T](id: ContainerId, withTimestamps: Boolean = false, tail: Option[Int] = None)(consumer: Iteratee[Array[Byte], T])(implicit docker: DockerClient): Future[Iteratee[Array[Byte], T]] = {
+    fetchLog[T](id, false, true, withTimestamps, tail)(consumer)
+  }
+  
+  /**
    * attach to a containers stdout, stderr, logs and stdin channel and stream their contents
    */
   def attachStream[T](id: ContainerId, stdout: Boolean = true, stderr: Boolean = false, logs: Boolean = false, stdin: Option[Enumerator[Array[Byte]]] = None)(consumer: Iteratee[Array[Byte], T])(implicit docker: DockerClient): Future[Iteratee[Array[Byte], T]] = {
     
-     // TODO: use containerLogs if logs == true
+    logs match {
+      case true => attachLog[T](id, stdout, stderr)(consumer) // attach to logs => proxy to attachLogs
+      case _ => {
+        val req = stdin match {
+          case Some(en) =>
+            // transform stdin enumerator into  an inputstream and attach to request
+            val os = new PipedOutputStream()
+            val is = new PipedInputStream(os)
     
-    val req = stdin match {
-      case Some(en) =>
-        // transform stdin enumerator into  an inputstream and attach to request
-        val os = new PipedOutputStream()
-        val is = new PipedInputStream(os)
-
-        (en |>>> Iteratee.foreach{b =>
-          //println(s"STDIN:Container.$id> ${new String(b)}")
-          os.write(b)
-        }).map{_ =>
-          os.close()
-          is.close()
+            (en |>>> Iteratee.foreach{b =>
+              //println(s"STDIN:Container.$id> ${new String(b)}")
+              os.write(b)
+            }).map{_ =>
+              os.close()
+              is.close()
+            }
+            url(Endpoints.containerAttach(id, true, true, stdout, stderr, logs).toString)
+              .POST
+              .subject.underlying(_.setBody(new InputStreamBodyGenerator(is)))
+    
+          case _ => url(Endpoints.containerAttach(id, true, false, stdout, stderr, logs).toString).POST
         }
-        url(Endpoints.containerAttach(id, true, true, stdout, stderr, logs).toString)
-          .POST
-          .subject.underlying(_.setBody(new InputStreamBodyGenerator(is)))
-
-      case _ => url(Endpoints.containerAttach(id, true, false, stdout, stderr, logs).toString).POST
-    }
-
-    docker.dockerRequestIteratee(req)(_ => consumer).recoverWith{
-      case DockerResponseCode(400, err) => throw new DockerBadParameterException(s"unable to attach to container $id", docker, req)
-      case DockerResponseCode(404, err) => Future.failed(new NoSuchContainerException(id, docker))
-      case DockerResponseCode(500, err) => Future.failed(new DockerInternalServerErrorException(docker, err))
-      case t @ DockerResponseCode(code, err) => Future.failed(new DockerRequestException(s"Docker streaming attach to container $id failed (Code: $code): err", docker, Some(t), None))
+    
+        docker.dockerRequestIteratee(req)(_ => consumer).recoverWith{
+          case DockerResponseCode(400, err) => throw new DockerBadParameterException(s"unable to attach to container $id", docker, req)
+          case DockerResponseCode(404, err) => Future.failed(new NoSuchContainerException(id, docker))
+          case DockerResponseCode(500, err) => Future.failed(new DockerInternalServerErrorException(docker, err))
+          case t @ DockerResponseCode(code, err) => Future.failed(new DockerRequestException(s"Docker streaming attach to container $id failed (Code: $code): err", docker, Some(t), None))
+        }
+      }
     }
   }
 
   /**
-   * attach given enumerator to stdin only of a container
+   * convenience method to attach an enumerator to stdin
    * returns a future which will be completed once the enumerator is done / detached
    */
   def attachStdin(id: ContainerId, en: Enumerator[Array[Byte]])(implicit docker: DockerClient): Future[Unit] = {
@@ -425,17 +558,22 @@ trait DockerContainerApi extends DockerApiHelper {
    * attach to stdout, stderr and/or logs channel
    * returns data immediately - no streaming
    */
-  def attach[T](id: ContainerId, stdout: Boolean = true, stderr: Boolean = false, logs: Boolean = false)(consumer: Iteratee[Array[Byte], T] = Iteratee.ignore)(implicit docker: DockerClient): Future[Iteratee[Array[Byte], T]] = {
-    // TODO: use containerLogs if logs == true
+  def attach[T](id: ContainerId, stdout: Boolean = true, stderr: Boolean = false, logs: Boolean = false)(consumer: Iteratee[Array[Byte], T] = Iteratee.ignore)(implicit docker: DockerClient): Future[Iteratee[Array[Byte], T]] = {    
+    logs match {
+      case true => fetchLog[T](id, stdout, stderr)(consumer)  // attach to logs? => redirect to fetchLog endpoint
+      case _ => {
+        val req = url(Endpoints.containerAttach(id, false, false, stdout, stderr, logs).toString).POST
     
-    val req = url(Endpoints.containerAttach(id, false, false, stdout, stderr, logs).toString).POST
-    
-    docker.dockerRequestIteratee(req)(_ => consumer).recoverWith{
-      case DockerResponseCode(400, err) => throw new DockerBadParameterException(s"unable to attach to container $id", docker, req)
-      case DockerResponseCode(404, err) => Future.failed(new NoSuchContainerException(id, docker))
-      case DockerResponseCode(500, err) => Future.failed(new DockerInternalServerErrorException(docker, err))
-      case t @ DockerResponseCode(code, err) => Future.failed(new DockerRequestException(s"Docker attach to container $id failed (Code: $code): err", docker, Some(t), None))
+        docker.dockerRequestIteratee(req)(_ => consumer).recoverWith{
+          case DockerResponseCode(400, err) => throw new DockerBadParameterException(s"unable to attach to container $id", docker, req)
+          case DockerResponseCode(404, err) => Future.failed(new NoSuchContainerException(id, docker))
+          case DockerResponseCode(500, err) => Future.failed(new DockerInternalServerErrorException(docker, err))
+          case t @ DockerResponseCode(code, err) => Future.failed(new DockerRequestException(s"Docker attach to container $id failed (Code: $code): err", docker, Some(t), None))
+        }
+      }
     }
+    
+    
   }
 
   /**
