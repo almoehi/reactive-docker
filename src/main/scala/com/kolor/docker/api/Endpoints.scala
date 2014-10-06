@@ -129,10 +129,13 @@ object Endpoints {
     (u) ? ("fromImage" ->  fromImage) & ("fromSource" -> fromSource) & ("repo" -> repo) & ("tag" -> tag) & ("registry" -> registry)
   }
   
-  def imageInsert(name: String, imageTargetPath: String, source: java.net.URI)(implicit docker: DockerClient): Uri = {
-    // TODO: removed in API v1.12
-    val u = (baseUri / "images" / name / "insert")
-    (u) ? ("path" -> imageTargetPath) & ("url" -> source.toString)
+  def imageInsert(name: String, imageTargetPath: String, source: java.net.URI)(implicit docker: DockerClient): Uri = {    
+    docker match {
+      case d:DockerClientV19 => 
+        val u = (baseUri / "images" / name / "insert")
+        (u) ? ("path" -> imageTargetPath) & ("url" -> source.toString)
+      case _ => throw new RuntimeException("imageInsert endpoint removed with api v1.12")
+    }
   }
   
   def imageInspect(name: String)(implicit docker: DockerClient): Uri = {

@@ -108,12 +108,15 @@ val req = solr / "update" / "json" << a <<? params <:< headers
   /**
    * PING docker host
    */
-  /*
-  def dockerPing()(implicit docker: DockerClient): Future[DockerVersion] = {
+  def dockerPing()(implicit docker: DockerClient): Future[Boolean] = {
 	  val req = url(Endpoints.dockerPing.toString).GET
-	  // TODO: handle non JSON response, body should be "OK" with http 200
+	  docker.httpRequest(req).map {
+	    case Right(str) if (str.toLowerCase().equalsIgnoreCase("ok")) => true
+	    case Right(str) => false
+	    case Left(t) => throw new DockerRequestException(s"docker ping request failed", docker, Some(t), Some(req))
+	  }
   }
-  */
+
   
   /**
    * retrieve docker version
@@ -435,7 +438,7 @@ trait DockerContainerApi extends DockerApiHelper {
 
   /**
    * attach to stdout, stderr and/or logs channel
-   * returns data immediatelly - no streaming
+   * returns data immediately - no streaming
    */
   def attach[T](id: ContainerId, stdout: Boolean = true, stderr: Boolean = false, logs: Boolean = false)(consumer: Iteratee[Array[Byte], T] = Iteratee.ignore)(implicit docker: DockerClient): Future[Iteratee[Array[Byte], T]] = {
     // TODO: use containerLogs if logs == true
@@ -593,7 +596,7 @@ trait DockerImagesApi extends DockerApiHelper {
   /**
    * insert a resource into image from remote location
    * allows realtime processing of reponse by given consumer iteratee
-   * TODO: removed with API 1.12
+   * removed with API 1.12
    */
   def imageInsertResourceIteratee[T](image: String, imageTargetPath: String, sourceFileUrl: java.net.URI)(consumer: Iteratee[Array[Byte], T])(implicit docker: DockerClient): Future[Iteratee[Array[Byte], T]] = {
     val req = url(Endpoints.imageInsert(image, imageTargetPath, sourceFileUrl).toString).POST
@@ -604,7 +607,7 @@ trait DockerImagesApi extends DockerApiHelper {
   /**
    * insert a resource into image from remote location
    * collects and returns list of messages/errors on completion
-   * TODO: removed with API 1.12
+   * removed with API 1.12
    */
   def imageInsertResource(image: String, imageTargetPath: String, sourceFileUrl: java.net.URI)(implicit docker: DockerClient): Future[List[Either[DockerErrorInfo, DockerStatusMessage]]] = {
 	  imageInsertResourceIteratee(image, imageTargetPath, sourceFileUrl)(DockerIteratee.statusStream).flatMap(_.run)

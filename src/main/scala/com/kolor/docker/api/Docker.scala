@@ -33,6 +33,21 @@ sealed trait DockerClient extends DockerApi {
   
   private def nullConsumer(hdr: DockerResponseHeaders) =  Iteratee.ignore[Array[Byte]]
   
+  final def httpRequest(req: dispatch.Req)(implicit docker: DockerClient): Future[Either[Throwable, String]] = {
+    log.debug(s"httpRequest: ${req}")
+    Http(req).either.map{
+      case Right(resp) if (Seq(200, 201, 202).contains(resp.getStatusCode())) => Right(resp.getResponseBody())
+      case Right(resp) if (resp.getStatusCode() == 409) => throw new DockerConflictException(s"docker conflict (${req.url}) : ${resp.getResponseBody()}", docker)
+      case Right(resp) if (resp.getStatusCode() == 500) => throw new DockerInternalServerErrorException(docker, s"docker internal server error for ${req.url}: ${resp.getResponseBody()}")
+      case Right(resp) => throw new DockerRequestException(s"docker request error for ${req.url} (Code: ${resp.getStatusCode()}) : ${resp.getResponseBody()}", docker, None, Some(req)) 
+      case Left(t) => Left(t)
+    }.recover {
+      case t: Throwable => 
+        log.debug(s"(${req.toRequest.getMethod()}) httpRequest for ${req.url} failed", t)
+        Left(t)
+    }
+  }
+  
   final def dockerJsonRequest[T](req: dispatch.Req)(implicit docker: DockerClient, fmt: Format[T]): Future[Either[Throwable, T]] = {
     log.debug(s"dockerJsonRequest: ${req}")
     Http(req).either.map{

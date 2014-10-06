@@ -38,6 +38,11 @@ class DockerQuickSpec extends Specification {
 
   "DockerApi should at least be able to" should {
 
+    "ping docker host" in new DockerContext {
+      val res = await(docker.dockerPing())
+      res must be_==(true)
+    }
+    
     "list images" in image {
       val images = await(docker.images())
       images.size must be_>(0)
