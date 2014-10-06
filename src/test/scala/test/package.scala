@@ -1,5 +1,5 @@
 import com.kolor.docker.api._
-import com.kolor.docker.api.types._
+import com.kolor.docker.api.entities._
 import scala.concurrent.duration.Duration
 import org.specs2.specification._
 import java.util.concurrent.TimeUnit._
@@ -16,7 +16,7 @@ package object test {
   private val log = LoggerFactory.getLogger(getClass())
   
   class DockerContext extends Scope {
-	  implicit lazy val docker: DockerClient = Docker("192.168.59.103", 2375)
+	  implicit lazy val docker: DockerClient = Docker("localhost", 2375)
 	  implicit val timeout = Duration.create(60, SECONDS)
   }
   
@@ -27,7 +27,7 @@ package object test {
   case class Container(containerId: ContainerId, containerName: String, image: RepositoryTag, imageCmd: Seq[String])
 	
   trait DockerEnv[T] extends AroundOutside[T] {
-	  implicit val docker = Docker("192.168.59.103", 2375)
+	  implicit val docker = Docker("localhost", 2375)
 	  implicit val timeout = Duration.create(60, SECONDS)
   }
 	
@@ -46,7 +46,7 @@ package object test {
 	      Await.result(docker.imageCreateIteratee(env.imageTag)(Iteratee.ignore).flatMap(_.run), timeout)
 	      AsResult(t)
 	    } finally {
-	      Await.result(docker.imageRemove(env.imageName), timeout)
+	      //Await.result(docker.imageRemove(env.imageName), timeout)
 	      log.info(s"shutdown & cleaned up image context")
 	    }
 	  }
@@ -82,7 +82,7 @@ package object test {
 	      try {
 	    	  Await.result(docker.containerStop(env.containerId, 10), timeout)
 		      Await.result(docker.containerRemove(env.containerId, true), timeout)
-		      Await.result(docker.imageRemove("busybox"), timeout)
+		      //Await.result(docker.imageRemove("busybox"), timeout)
 	      } catch {
 	        case t:Throwable => // ignore
 	      } finally {
@@ -169,7 +169,7 @@ package object test {
 	      try {
 	    	  Await.result(docker.containerStop(env.containerId, 10), timeout)
 		      Await.result(docker.containerRemove(env.containerId, true), timeout)
-		      Await.result(docker.imageRemove("busybox"), timeout)
+		      //Await.result(docker.imageRemove("busybox"), timeout)
 	      } catch {
 	        case t:Throwable => // ignore
 	      } finally {
@@ -215,7 +215,7 @@ package object test {
 	      try {
 	    	  Await.result(docker.containerStop(env.containerId, 10), timeout)
 		      Await.result(docker.containerRemove(env.containerId, true), timeout)
-		      Await.result(docker.imageRemove("busybox"), timeout)
+		      //Await.result(docker.imageRemove("busybox"), timeout)
 	      } catch {
 	        case t:Throwable => // ignore
 	      } finally {

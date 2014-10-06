@@ -9,7 +9,7 @@ import org.specs2.specification.Before
 import scala.concurrent.duration.DurationConversions._
 import scala.concurrent.duration._
 import scala.concurrent._
-import com.kolor.docker.api.types._
+import com.kolor.docker.api.entities._
 import org.joda.time.DateTime
 import org.specs2.execute._
 import org.specs2.specification._
@@ -26,7 +26,7 @@ class DockerQuickSpec extends Specification {
 
   implicit def defaultAwaitTimeout: Duration = Duration(20, SECONDS)
 
-  implicit val docker = Docker("192.168.59.103", 2375)
+  implicit val docker = Docker("localhost", 2375)
 
   val log = LoggerFactory.getLogger(getClass())
 
@@ -86,6 +86,13 @@ class DockerQuickSpec extends Specification {
     }
     
     "pull an image" in new DockerContext { 
+      
+      try {
+        await(docker.imageRemove("busybox"))
+      } catch {
+        case e:NoSuchImageException => // ignore
+      }
+      
       val res = await(docker.imageCreate(RepositoryTag("busybox")))
       
       res must not be empty

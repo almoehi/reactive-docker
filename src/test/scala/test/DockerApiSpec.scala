@@ -9,7 +9,7 @@ import org.specs2.specification.Before
 import scala.concurrent.duration.DurationConversions._
 import scala.concurrent.duration._
 import scala.concurrent._
-import com.kolor.docker.api.types._
+import com.kolor.docker.api.entities._
 import org.joda.time.DateTime
 import org.specs2.execute._
 import org.specs2.specification._
@@ -18,8 +18,6 @@ import scala.concurrent.ExecutionContext.Implicits.global
 import com.kolor.docker.api.json.Formats._
 import play.api.libs.iteratee._
 import org.slf4j.LoggerFactory
-import com.kolor.docker.api.types.ContainerHostConfiguration
-import com.kolor.docker.api.types.ContainerConfiguration
 import com.netaporter.uri.Uri
 import com.netaporter.uri.Uri
 
@@ -27,7 +25,7 @@ class DockerApiSpec extends Specification {
 
   implicit def defaultAwaitTimeout: Duration = Duration.create(40, SECONDS)
   
-  implicit val docker = Docker("192.168.59.103", 2375)
+  implicit val docker = Docker("localhost", 2375)
   
   private val log = LoggerFactory.getLogger(getClass())
   
