@@ -18,6 +18,7 @@ import org.apache.commons.compress.archivers.tar.TarArchiveOutputStream
 import java.util.zip.GZIPOutputStream
 import org.apache.commons.compress.archivers.tar.TarArchiveEntry
 import org.apache.commons.compress.utils.IOUtils
+import com.kolor.docker.dsl.Dockerfile
 
 /**
  * helper trait
@@ -166,11 +167,30 @@ val req = solr / "update" / "json" << a <<? params <:< headers
   }
   
   /**
+   * build image from Dockerfile DSL
+   * val temp = dockerfile.asTempfile
+   */
+  def dockerfileBuildIteratee[T](dockerfile: Dockerfile, tag: String, verbose: Boolean = false, nocache: Boolean = false, forceRm: Boolean = false)(consumer: Iteratee[Array[Byte], T])(implicit docker: DockerClient, auth: DockerAuth = DockerAnonymousAuth): Future[Iteratee[Array[Byte], T]] = {
+    val temp = dockerfile.asTempfile
+    dockerBuildIteratee(temp, tag, verbose, nocache, forceRm)(consumer)
+  }
+  
+  /**
    * build image from dockerfile
    * collects and aggregates all docker messages into a list on completion
    */
   def dockerBuild(tarFile: java.io.File, tag: String, verbose: Boolean = false, nocache: Boolean = false, forceRm: Boolean = false)(implicit docker: DockerClient, auth: DockerAuth = DockerAnonymousAuth): Future[List[Either[DockerErrorInfo, DockerStatusMessage]]] = {
     dockerBuildIteratee(tarFile, tag, verbose, nocache, forceRm)(DockerIteratee.statusStream).flatMap(_.run)
+  }
+  
+  
+  /**
+   * build image from Dockerfile DSL
+   * collect and aggregate all messages into a list
+   */
+  def dockerfileBuild(dockerfile: Dockerfile, tag: String, verbose: Boolean = false, nocache: Boolean = false, forceRm: Boolean = false)(implicit docker: DockerClient, auth: DockerAuth = DockerAnonymousAuth): Future[List[Either[DockerErrorInfo, DockerStatusMessage]]] = {
+    val temp = dockerfile.asTempfile
+    dockerBuild(temp, tag, verbose, nocache, forceRm)
   }
   
   /*
