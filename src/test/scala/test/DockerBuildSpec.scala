@@ -70,5 +70,34 @@ class DockerBuildSpec extends Specification {
       }
     }
     
+   
+    "be able to build from Dockerfile DSL" in new DockerContext {
+      import com.kolor.docker.dsl._
+      val dockerfile = Dockerfile from "ubuntu" by "me <me@somehost.de>" expose (80, 8080) starting withArgs("ls", "-lah", "/opt/src") add "src/" -> "/opt/src"
+      val res = await(docker.dockerfileBuild(dockerfile, "dsl-container"))
+      //println(res)
+      val last = res.last
+      
+      last should beRight{msg:DockerStatusMessage => 
+          msg.error should beNone
+      }
+    }
+    
+    
+    "be able to build from Dockerfile DSL and fail on error" in new DockerContext {
+      import com.kolor.docker.dsl._
+      val dockerfile = Dockerfile from "ubuntu" by "me <me@somehost.de>" run "mkdir -p /opt" install "vim" expose (80, 8080) starting withArgs("ls", "-lah", "/opt/src") add "src/" -> "/opt/src"
+      
+      //log.info(dockerfile.toString)
+      
+      val res = await(docker.dockerfileBuild(dockerfile, "dsl-container"))
+      //println(res)
+      
+      val last = res.last
+      
+      last should beLeft{msg:DockerErrorInfo => 
+          msg.message should not beEmpty
+      }
+    }
   }
 }
