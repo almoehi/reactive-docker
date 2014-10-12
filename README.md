@@ -16,11 +16,11 @@ pending features:
 
 Installation
 =============
-As reactive-docker still is in a very early stage of development no artifacts have been published yet. To use it you simply need to:
+As reactive-docker still is in a very early stage of development only SNAPSHOT artifacts will be published to Sonatype Snapshots repo. 
+Add the following to your build.sbt:
 
-* git clone
-* ```sbt publishLocal```
-* include into your SBT project ``` "com.kolor" %% "reactive-docker" % "0.1-SNAPSHOT"```
+* ```resolvers += Resolver.sonatypeRepo("snapshots")```
+* ``` libraryDependencies ++= "org.almoehi" %% "reactive-docker" % "0.1-SNAPSHOT"```
 
 Sample Usage
 ==================
