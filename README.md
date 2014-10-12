@@ -20,7 +20,7 @@ As reactive-docker still is in a very early stage of development only SNAPSHOT a
 Add the following to your build.sbt:
 
 * ```resolvers += Resolver.sonatypeRepo("snapshots")```
-* ``` libraryDependencies ++= "org.almoehi" %% "reactive-docker" % "0.1-SNAPSHOT"```
+* ``` libraryDependencies += "org.almoehi" %% "reactive-docker" % "0.1-SNAPSHOT"```
 
 Sample Usage
 ==================
