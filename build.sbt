@@ -1,4 +1,4 @@
-organization := "com.kolor"
+organization := "org.almoehi"
 
 name := "reactive-docker"
 
@@ -12,7 +12,7 @@ addCompilerPlugin("org.scalamacros" % "paradise" % "2.0.1" cross CrossVersion.fu
 
 publishMavenStyle := true
 
-// crossScalaVersions := Seq("2.10.0", "2.11.0")
+//crossScalaVersions := Seq("2.10.0", "2.11.0")
 
 publishTo <<= version { (v: String) =>
   val nexus = "https://oss.sonatype.org/"
