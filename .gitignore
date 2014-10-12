@@ -3,6 +3,8 @@
 .cache
 .classpath
 .project
+.idea
+*.swp
 WorksheetSpec.scala
 
 # sbt specific
