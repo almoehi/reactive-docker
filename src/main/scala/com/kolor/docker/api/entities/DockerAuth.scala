@@ -1,7 +1,5 @@
 package com.kolor.docker.api.entities
 
-import scala.io.BufferedSource
-
 trait DockerAuth{
   private lazy val base64Encoder = new sun.misc.BASE64Encoder()
 
@@ -12,19 +10,11 @@ trait DockerAuth{
   def asBase64Encoded: String = base64Encoder.encode(s"""{"username":"$username", "password":"$password", "email":"$email", "serveraddress":"$serverAddress"}""".getBytes())
 }
 
-class ConfigReader(config: BufferedSource) {
-  private lazy val lines = config.getLines()
-
-  def getProperty(name: String): String =
-    lines
-      .find(_.startsWith(s"$name="))
-      .map(_.replace(s"$name=", ""))
-      .getOrElse("")
-}
-
 object DockerAuthCredentials {
+  private val CREDENTIALS_FILE_PATH = "/credentials.properties"
+
   def fromResource(): DockerAuthCredentials = {
-    val reader = new ConfigReader(scala.io.Source.fromURL(getClass.getResource("/credentials.properties")))
+    val reader = new ConfigReader(scala.io.Source.fromURL(getClass.getResource(CREDENTIALS_FILE_PATH)))
     DockerAuthCredentials(
       reader.getProperty("username"),
       reader.getProperty("password"),
