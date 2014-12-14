@@ -20,7 +20,7 @@ import org.slf4j.LoggerFactory
 import com.netaporter.uri.Uri
 import com.netaporter.uri.Uri
 
-class DockerApiSpec extends Specification {
+class DockerApiSpec extends Specification with DefaultDockerAuth {
 
   import com.kolor.docker.api.json.FormatsV112._
   
@@ -29,11 +29,6 @@ class DockerApiSpec extends Specification {
   implicit val docker = Docker("localhost", 2375)
   
   private val log = LoggerFactory.getLogger(getClass())
-  
-  /**
-   * put your won credentials here otherwise some tests might fail
-   */
-  lazy val authInfo = DockerAuthCredentials("user", "pass", "me@host.com", "https://index.docker.io/v1/")
   
   def await[T](f: Future[T]): T = {
     Await.result(f, defaultAwaitTimeout)
@@ -93,7 +88,7 @@ class DockerApiSpec extends Specification {
     }
     
     "auth against docker" in new DockerContext {
-      val auth = await(docker.dockerAuth(authInfo))
+      val auth = await(docker.dockerAuth(dockerCredentials))
       auth must be_==(true)
     }
     

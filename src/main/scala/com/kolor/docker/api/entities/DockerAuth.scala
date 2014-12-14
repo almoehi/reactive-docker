@@ -1,8 +1,5 @@
 package com.kolor.docker.api.entities
 
-import play.api.libs.json._
-import java.security.MessageDigest
-
 trait DockerAuth{
   private lazy val base64Encoder = new sun.misc.BASE64Encoder()
 
@@ -11,6 +8,24 @@ trait DockerAuth{
   def email: String
   def serverAddress: String
   def asBase64Encoded: String = base64Encoder.encode(s"""{"username":"$username", "password":"$password", "email":"$email", "serveraddress":"$serverAddress"}""".getBytes())
+}
+
+object DockerAuthCredentials {
+  private val CREDENTIALS_FILE_PATH = "/credentials.properties"
+
+  def fromResource(): DockerAuthCredentials = {
+    val reader = new ConfigReader(scala.io.Source.fromURL(getClass.getResource(CREDENTIALS_FILE_PATH)))
+    DockerAuthCredentials(
+      reader.getProperty("username"),
+      reader.getProperty("password"),
+      reader.getProperty("email"),
+      reader.getProperty("serverAddress")
+    )
+  }
+}
+
+trait DefaultDockerAuth extends DockerAuthCredentials {
+  lazy val dockerCredentials = DockerAuthCredentials.fromResource()
 }
 
 case class DockerAuthCredentials(
