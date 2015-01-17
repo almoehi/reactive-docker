@@ -24,8 +24,13 @@ object DockerAuthCredentials {
   }
 }
 
-trait DefaultDockerAuth extends DockerAuthCredentials {
+trait DefaultDockerAuth extends DockerAuth {
   lazy val dockerCredentials = DockerAuthCredentials.fromResource()
+
+  def username = dockerCredentials.username
+  def password = dockerCredentials.password
+  def email = dockerCredentials.email
+  def serverAddress = dockerCredentials.serverAddress
 }
 
 case class DockerAuthCredentials(
