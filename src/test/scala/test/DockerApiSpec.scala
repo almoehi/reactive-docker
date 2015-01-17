@@ -26,7 +26,7 @@ class DockerApiSpec extends Specification with DefaultDockerAuth {
   
   implicit def defaultAwaitTimeout: Duration = Duration.create(40, SECONDS)
   
-  implicit val docker = Docker("localhost", 2375)
+  implicit val docker = Docker()
   
   private val log = LoggerFactory.getLogger(getClass())
   
@@ -128,16 +128,18 @@ class DockerApiSpec extends Specification with DefaultDockerAuth {
       }
     }
     
-    "insert a resource into an image" in image {env:Image => 
-      val res = await(docker.imageInsertResource("busybox", "/tmp/test.txt", java.net.URI.create("http://xchat.org/changelog.txt")))
-      
-      res must not be empty
-    	res.size must be_>(0)
-    	res(0) must beLike {
-        	case Right(msg) => msg.status must not be empty
-        	case Left(err) => err.message must not be empty
-    	}
-    } must throwA[RuntimeException]  // removed in API v1.12+
+    "insert a resource into an image" in image {env:Image =>
+      {
+        val res = await(docker.imageInsertResource("busybox", "/tmp/test.txt", java.net.URI.create("http://xchat.org/changelog.txt")))
+
+        res must not be empty
+        res.size must be_>(0)
+        res(0) must beLike {
+          case Right(msg) => msg.status must not be empty
+          case Left(err) => err.message must not be empty
+        }
+      } must throwA[RuntimeException] // removed in API v1.12+
+    }
     
     "inspect a docker image" in image {env:Image => 
       val info = await(docker.imageInspect(env.imageName))
