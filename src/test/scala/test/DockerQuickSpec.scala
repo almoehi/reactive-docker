@@ -21,13 +21,13 @@ import play.api.libs.iteratee._
 import org.slf4j.LoggerFactory
 
 @RunWith(classOf[JUnitRunner])
-class DockerQuickSpec extends Specification {
+class DockerQuickSpec extends Specification with DefaultDockerAuth {
   
   import com.kolor.docker.api.json.FormatsV112._
 
   implicit def defaultAwaitTimeout: Duration = Duration(20, SECONDS)
 
-  implicit val docker = Docker("localhost", 2375)
+  implicit val docker = Docker()
 
   val log = LoggerFactory.getLogger(getClass())
 
@@ -154,7 +154,7 @@ class DockerQuickSpec extends Specification {
     } 
 
    "push image to a registry" in image {env:Image =>
-  	  lazy val authInfo = DockerAuthCredentials("user", "pass", "me@host.com", "https://index.docker.io/v1/")
+  	  lazy val authInfo = dockerCredentials //DockerAuthCredentials("user", "pass", "me@host.com", "https://index.docker.io/v1/")
 
   	  val (it, en) = Concurrent.joined[Array[Byte]]
       val maybeRes = (en &> DockerEnumeratee.statusStream() |>>> Iteratee.getChunks)
