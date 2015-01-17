@@ -330,7 +330,9 @@ trait DockerContainerApi extends DockerApiHelper {
     val req = url(Endpoints.containerProcesses(id, psArgs).toString).GET
     docker.dockerRequest(req).map { 
       case Right(resp) if resp.getStatusCode() == 404 => throw new NoSuchContainerException(id, docker)
-      case Right(resp) if resp.getStatusCode() == 500 => throw new DockerInternalServerErrorException(docker)
+      case Right(resp) if resp.getStatusCode() == 500 =>
+        log.error(s"ResponseError: ${resp.getResponseBody}")
+        throw new DockerInternalServerErrorException(docker)
       case Right(resp) if resp.getStatusCode() == 200 => 
         val json = Json.parse(resp.getResponseBody()).asOpt[JsObject]
         val columns: Option[Seq[String]] = json.flatMap(j => (j \ "Titles").asOpt[Seq[String]])
@@ -753,7 +755,10 @@ trait DockerImagesApi extends DockerApiHelper {
    * removed with API 1.12
    */
   def imageInsertResource(image: String, imageTargetPath: String, sourceFileUrl: java.net.URI)(implicit docker: DockerClient): Future[List[Either[DockerErrorInfo, DockerStatusMessage]]] = {
-	  imageInsertResourceIteratee(image, imageTargetPath, sourceFileUrl)(DockerIteratee.statusStream).flatMap(_.run)
+	  docker match {
+      case cl:DockerClientV19 => imageInsertResourceIteratee(image, imageTargetPath, sourceFileUrl)(DockerIteratee.statusStream).flatMap(_.run)
+      case _ => throw new RuntimeException("removed with API v1.12")
+    }
   }
 
   /**
