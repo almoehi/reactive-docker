@@ -29,7 +29,7 @@ class DockerAttachSpec extends Specification {
 
   implicit def defaultAwaitTimeout: Duration = Duration(20, SECONDS)
 
-  implicit val docker = Docker("localhost", 2375)
+  implicit val docker = Docker()
 
   val log = LoggerFactory.getLogger(getClass())
 

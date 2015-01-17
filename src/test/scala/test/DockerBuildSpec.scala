@@ -14,7 +14,7 @@ class DockerBuildSpec extends Specification with DefaultDockerAuth {
   
   implicit def defaultAwaitTimeout: Duration = Duration.create(40, SECONDS)
   
-  implicit val docker = Docker("localhost", 2375)
+  implicit val docker = Docker()
   
   private val log = LoggerFactory.getLogger(getClass())
   
@@ -69,7 +69,7 @@ class DockerBuildSpec extends Specification with DefaultDockerAuth {
     
     "be able to build from Dockerfile DSL and fail on error" in new DockerContext {
       import com.kolor.docker.dsl._
-      val dockerfile = Dockerfile from "ubuntu" by "me <me@somehost.de>" run "mkdir -p /opt" install "vim" expose (80, 8080) starting withArgs("ls", "-lah", "/opt/src") add "src/" -> "/opt/src"
+      val dockerfile = Dockerfile from "ubuntu" by "me <me@somehost.de>" run "mkdir -p /opt" install "someNonExistPackage" expose (80, 8080) starting withArgs("ls", "-lah", "/opt/src") add "src/" -> "/opt/src"
       
       //log.info(dockerfile.toString)
       
