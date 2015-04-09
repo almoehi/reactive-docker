@@ -74,34 +74,29 @@ object FormatsV112 {
 
   val hostConfigPortBindingWrite: Writes[Map[String, DockerPortBinding]] = new Writes[Map[String, DockerPortBinding]] {
     def writes(ports: Map[String, DockerPortBinding]): JsValue = {
-      val ret = Json.obj()
-      ports.map {
-        case (_, cfg) => Map(s"${cfg.privatePort}/${cfg.protocol.getOrElse("tcp")}" -> Json.arr(Json.obj("HostPort" -> cfg.publicPort, "HostIp" -> cfg.hostIp)))
+      val m= ports.flatMap{
+        case (_, cfg) => Map(s"${cfg.privatePort}/${cfg.protocol.getOrElse("tcp")}" -> Json.arr(Json.obj("HostPort" -> cfg.publicPort.map(_.toString), "HostIp" -> cfg.hostIp)))
       }
-
+      val ret = Json.toJson(m)
       ret
     }
   }
 
   val networkConfigPortBindingWrite: Writes[Seq[DockerPortBinding]] = new Writes[Seq[DockerPortBinding]] {
     def writes(ports: Seq[DockerPortBinding]): JsValue = {
-      val ret = Json.obj()
-      ports.map {
-        case cfg => Map(s"${cfg.privatePort}/${cfg.protocol.getOrElse("tcp")}" -> Json.obj("HostPort" -> cfg.publicPort, "HostIp" -> cfg.hostIp))
+      val m = ports.map {
+        case cfg => Map(s"${cfg.privatePort}/${cfg.protocol.getOrElse("tcp")}" -> Json.obj("HostPort" -> cfg.publicPort.map(_.toString), "HostIp" -> cfg.hostIp))
       }
-
-      ret
+      Json.toJson(m)
     }
   }
 
   val containerConfigPortBindingWrite: Writes[Map[String, DockerPortBinding]] = new Writes[Map[String, DockerPortBinding]] {
     def writes(ports: Map[String, DockerPortBinding]): JsValue = {
-      val ret = Json.obj()
-      ports.map {
-        case (_, cfg) => Map(s"${cfg.privatePort}/${cfg.protocol.getOrElse("tcp")}" -> Json.obj("HostPort" -> cfg.publicPort, "HostIp" -> cfg.hostIp))
+      val m = ports.map {
+        case (_, cfg) => Map(s"${cfg.privatePort}/${cfg.protocol.getOrElse("tcp")}" -> Json.arr(Json.obj("HostPort" -> cfg.publicPort, "HostIp" -> cfg.hostIp)))
       }
-
-      ret
+      Json.toJson(m)
     }
   }
 
@@ -158,14 +153,14 @@ object FormatsV112 {
 
   implicit val portBindFmt = Format(
     (
-      (__ \ "Port").read[Int] and
-      (__ \ "HostPort").readNullable[Int] and
-      (__ \ "HostIp").readNullable[String] and
+      (__ \ "PrivatePort").read[Int] and
+      (__ \ "PublicPort").readNullable[Int] and
+      (__ \ "IP").readNullable[String] and
       (__ \ "Type").readNullable[String])(DockerPortBinding.apply _),
     (
-      (__ \ "Port").write[Int] and
-      (__ \ "HostPort").writeNullable[Int] and
-      (__ \ "HostIp").writeNullable[String] and
+      (__ \ "PrivatePort").write[Int] and
+      (__ \ "PublicPort").writeNullable[Int] and
+      (__ \ "IP").writeNullable[String] and
       (__ \ "Type").writeNullable[String])(unlift(DockerPortBinding.unapply)))
 
   implicit val dockerVersionFmt = Format(
@@ -323,7 +318,7 @@ object FormatsV112 {
       (__ \ "Config").read[ContainerConfiguration] and
       (__ \ "State").read[ContainerState] and
       (__ \ "NetworkSettings").read[ContainerNetworkConfiguration] and
-      (__ \ "HostConfig").read[ContainerHostConfiguration] and
+      (__ \ "HostConfig").read[ContainerHostConfiguration](containerHostConfigFmt) and
       (__ \ "Created").read[String].map(_.isoDateTime) and
       (__ \ "Name").readNullable[String].map(o => o.map(_.stripPrefix("/"))) and
       (__ \ "Path").readNullable[String] and
@@ -340,7 +335,7 @@ object FormatsV112 {
       (__ \ "Config").write[ContainerConfiguration] and
       (__ \ "State").write[ContainerState] and
       (__ \ "NetworkSettings").write[ContainerNetworkConfiguration] and
-      (__ \ "HostConfig").write[ContainerHostConfiguration] and
+      (__ \ "HostConfig").write[ContainerHostConfiguration](containerHostConfigFmt) and
       (__ \ "Created").write[DateTime](dateTimeToMillis) and
       (__ \ "Name").writeNullable[String] and
       (__ \ "Path").writeNullable[String] and
@@ -366,9 +361,7 @@ object FormatsV112 {
       ((__ \ "Command").read[String] or (__ \ "Command").read[Boolean].map(_.toString)) and
       (__ \ "Created").read[Long].map(new org.joda.time.DateTime(_)) and
       (__ \ "Status").read[String] and
-      (__ \ "Ports").read[JsArray].map { arr =>
-        Seq.empty[String]
-      } and
+      (__ \ "Ports").lazyRead(Reads.seq[DockerPortBinding](portBindFmt))and
       (__ \ "SizeRw").readNullable[Long] and
       (__ \ "SizeRootFs").readNullable[Long])(Container.apply _),
     Json.writes[Container])

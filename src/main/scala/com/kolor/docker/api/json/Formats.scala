@@ -405,7 +405,7 @@ object Formats {
       (__ \ "Created").read[Long].map(new org.joda.time.DateTime(_)) and
       (__ \ "Status").read[String] and
       (__ \ "Ports").read[JsArray].map { arr =>
-        Seq.empty[String]
+        Seq.empty[DockerPortBinding]
       } and
       (__ \ "SizeRw").readNullable[Long] and
       (__ \ "SizeRootFs").readNullable[Long])(Container.apply _),

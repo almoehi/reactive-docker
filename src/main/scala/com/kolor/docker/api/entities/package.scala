@@ -31,7 +31,7 @@ package object entities {
     command: String,
     created: DateTime,
     status: String,
-    ports: Seq[String],
+    ports: Seq[DockerPortBinding],
     sizeRw: Option[Long],
     sizeRootFs: Option[Long]) extends DockerEntity
 
