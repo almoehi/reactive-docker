@@ -33,7 +33,7 @@ object ContainerConfig {
     val res = Json.fromJson[ContainerConfiguration](json)(fmt)
     res.asOpt match {
       case Some(c) => c
-      case _ => throw new RuntimeException(s"failed to serialize container config to json: " + Json.prettyPrint(json))
+      case _ => throw new RuntimeException(s"failed to deserialize container config from json: " + Json.prettyPrint(json))
     }
   }
   
@@ -41,7 +41,7 @@ object ContainerConfig {
     val res = Json.fromJson[ContainerConfiguration](Json.parse(json))(fmt)
     res.asOpt match {
       case Some(c) => c
-      case _ => throw new RuntimeException(s"failed to serialize container config to json: " + json)
+      case _ => throw new RuntimeException(s"failed to deserialize container config from json: " + json)
     }
   }
   
